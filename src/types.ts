@@ -3,6 +3,7 @@
 export type ConfigTransformResult = {
   totalConfigCount: number | undefined;
   validConfigs: StatsigConfig[];
+  noticesByConfigName: Record<string, TransformNotice[]>;
   errorsByConfigName: Record<string, TransformError[]>;
 };
 
@@ -10,11 +11,17 @@ export type TransformResult<T> =
   | {
       transformed: true;
       result: T;
+      notices?: TransformNotice[];
     }
   | {
       transformed: false;
       errors: TransformError[];
     };
+
+export type TransformNotice = {
+  type: 'return_value_wrapped';
+  flagKey: string;
+};
 
 export type TransformError = {
   flagKey: string;
@@ -48,29 +55,14 @@ export type TransformError = {
       operator: string;
       values: unknown[];
     }
+  | {
+      type: 'unsupported_off_variation';
+      flagEnvironmentName: string;
+    }
+  | {
+      type: 'return_value_contains_null';
+    }
 );
-
-export function transformErrorToString(error: TransformError): string {
-  switch (error.type) {
-    case 'fetch_error':
-      return `Error fetching flag: ${error.message}`;
-    case 'unsupported_flag_kind':
-      return `Unsupported flag kind: ${error.flagKind}`;
-    case 'unit_id_not_mapped':
-      return `Unit ID not mapped for context kind: ${error.contextKind}`;
-    case 'custom_attribute_not_mapped':
-      return `Custom attribute not mapped for context kind: ${error.contextKind}.${error.attribute}`;
-    case 'unsupported_pass_percentage':
-      return `Unsupported pass percentage`;
-    case 'unsupported_operator':
-      return `Unsupported operator: ${error.operator}`;
-    case 'invalid_clause_values':
-      return `Invalid clause values: ${error.operator} with values: ${error.values.join(', ')}`;
-    default:
-      const exhaustive: never = error;
-      return exhaustive;
-  }
-}
 
 // Statsig API Types
 
@@ -80,11 +72,16 @@ export type StatsigEnvironment = {
   requiresReview: boolean;
 };
 
-export type StatsigConfig = {
-  type: 'gate';
-  gate: StatsigGate;
-  overrides: StatsigOverride[];
-};
+export type StatsigConfig =
+  | {
+      type: 'gate';
+      gate: StatsigGate;
+      overrides: StatsigOverride[];
+    }
+  | {
+      type: 'dynamic_config';
+      dynamicConfig: StatsigDynamicConfig;
+    };
 
 export type StatsigGate = {
   id: string;
@@ -95,11 +92,30 @@ export type StatsigGate = {
   rules: StatsigRule[];
 };
 
+export type StatsigDynamicConfig = {
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  rules: StatsigDynamicConfigRule[];
+};
+
 export type StatsigRule = {
   name: string;
-  passPercentage: number;
+  passPercentage?: number;
   conditions: StatsigCondition[];
   environments?: string[];
+};
+
+export type StatsigDynamicConfigRule = StatsigRule & {
+  returnValue?: Record<string, unknown>;
+  variants?: StatsigDynamicConfigVariant[];
+};
+
+export type StatsigDynamicConfigVariant = {
+  name: string;
+  passPercentage: number;
+  returnValue: Record<string, unknown>;
 };
 
 export type StatsigCondition = {

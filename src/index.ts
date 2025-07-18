@@ -1,7 +1,7 @@
 import {
-  deleteExistingImportedGates,
+  deleteExistingImportedConfigs,
   importConfigs,
-  needToDeleteExistingImportedGates,
+  needToDeleteExistingImportedConfigs,
 } from './import';
 import {
   ensureLaunchDarklySetup,
@@ -13,11 +13,11 @@ import {
   listStatsigUnitIDs,
   statsigApiThrottle,
 } from './statsig';
+import { transformErrorToString, transformNoticeToString } from './util';
 
 import minimist from 'minimist';
 import pThrottle from 'p-throttle';
 import readline from 'readline';
-import { transformErrorToString } from './types';
 
 const LAUNCHDARKLY_IMPORT_TAG = 'Imported from LaunchDarkly';
 const LAUNCHDARKLY_IMPORT_TAG_DESCRIPTION = 'Imported from LaunchDarkly';
@@ -133,7 +133,17 @@ async function main(): Promise<void> {
       `${configTransformResult.validConfigs.length} flags can imported:`,
     );
     configTransformResult.validConfigs.forEach((config) => {
-      console.log(`- ${config.gate.name}`);
+      const configName =
+        config.type === 'gate' ? config.gate.name : config.dynamicConfig.name;
+      console.log(
+        `- ${config.type === 'gate' ? `[gate] ${configName}` : `[dynamic config] ${configName}`}`,
+      );
+      const notices = configTransformResult.noticesByConfigName[configName];
+      if (notices) {
+        for (const notice of notices) {
+          console.log(`  - ${transformNoticeToString(notice)}`);
+        }
+      }
     });
     console.log(
       `\n${Object.keys(configTransformResult.errorsByConfigName).length} flags cannot be imported:`,
@@ -154,27 +164,27 @@ async function main(): Promise<void> {
       process.exit(0);
     }
 
-    const validConfigGateNames = configTransformResult.validConfigs.map(
-      (config) => config.gate.name,
+    const validConfigNames = configTransformResult.validConfigs.map((config) =>
+      config.type === 'gate' ? config.gate.name : config.dynamicConfig.name,
     );
     if (
-      await needToDeleteExistingImportedGates(validConfigGateNames, statsigArgs)
+      await needToDeleteExistingImportedConfigs(validConfigNames, statsigArgs)
     ) {
       const proceed = await getYesNo(
-        'There are existing imported gates. Proceed to delete them?',
+        'There are existing imported gates or dynamic configs. Proceed to delete them?',
       );
       if (!proceed) {
         process.exit(0);
       }
-      const deleteExistingImportedGatesResult =
-        await deleteExistingImportedGates(
-          validConfigGateNames,
+      const deleteExistingImportedConfigsResult =
+        await deleteExistingImportedConfigs(
+          validConfigNames,
           LAUNCHDARKLY_IMPORT_TAG,
           statsigArgs,
         );
-      if (!deleteExistingImportedGatesResult.ok) {
+      if (!deleteExistingImportedConfigsResult.ok) {
         console.log(
-          `Existing imported gates without being tagged with "${LAUNCHDARKLY_IMPORT_TAG}": ${deleteExistingImportedGatesResult.existingGatesWithoutImportTag.join(', ')}.`,
+          `Existing imported gates or dynamic configs without being tagged with "${LAUNCHDARKLY_IMPORT_TAG}": ${deleteExistingImportedConfigsResult.existingGatesWithoutImportTag.concat(deleteExistingImportedConfigsResult.existingDynamicConfigsWithoutImportTag).join(', ')}.`,
         );
         console.log(
           `Someone may have created those gates manually in Statsig. You can fix this by either tagging those gates with "${LAUNCHDARKLY_IMPORT_TAG}" or deleting them manually.`,
