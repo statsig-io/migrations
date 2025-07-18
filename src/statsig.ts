@@ -1,4 +1,9 @@
-import type { StatsigEnvironment, StatsigGate, StatsigOverride } from './types';
+import type {
+  StatsigDynamicConfig,
+  StatsigEnvironment,
+  StatsigGate,
+  StatsigOverride,
+} from './types';
 
 const BASE_URL = 'https://statsigapi.net/console/v1';
 const API_VERSION = '20240601';
@@ -135,8 +140,83 @@ export async function addStatsigGateOverrides(
       `Failed to create Statsig gate overrides: ${response.statusText} ${await response.text()}`,
     );
   }
+}
+
+export async function getStatsigDynamicConfig(
+  dynamicConfigName: string,
+  args: Args,
+): Promise<StatsigDynamicConfig | null> {
+  const response = await args.throttle(() =>
+    fetch(`${BASE_URL}/dynamic_configs/${dynamicConfigName}`, {
+      ...getRequestOptions(args),
+    }),
+  )();
+  if (!response.ok) {
+    if (response.status === 404) {
+      return null;
+    }
+    throw new Error(
+      `Failed to get Statsig dynamic config: ${response.statusText} ${await response.text()}`,
+    );
+  }
   const data = await response.json();
   return data.data;
+}
+
+export async function createStatsigDynamicConfig(
+  dynamicConfig: StatsigDynamicConfig,
+  args: Args,
+): Promise<StatsigDynamicConfig> {
+  const response = await args.throttle(() =>
+    fetch(`${BASE_URL}/dynamic_configs`, {
+      method: 'POST',
+      ...getRequestOptions(args),
+      body: JSON.stringify({
+        id: dynamicConfig.id,
+        name: dynamicConfig.name,
+        description: dynamicConfig.description,
+        tags: dynamicConfig.tags,
+        rules: dynamicConfig.rules,
+      }),
+    }),
+  )();
+  if (!response.ok) {
+    console.log(
+      JSON.stringify(
+        {
+          id: dynamicConfig.id,
+          name: dynamicConfig.name,
+          description: dynamicConfig.description,
+          tags: dynamicConfig.tags,
+          rules: dynamicConfig.rules,
+        },
+        null,
+        2,
+      ),
+    );
+    throw new Error(
+      `Failed to create Statsig dynamic config: ${response.statusText} ${await response.text()}`,
+    );
+  }
+  const data = await response.json();
+  return data.data;
+}
+
+export async function deleteStatsigDynamicConfig(
+  dynamicConfigName: string,
+  args: Args,
+): Promise<void> {
+  const response = await args.throttle(() =>
+    fetch(`${BASE_URL}/dynamic_configs/${dynamicConfigName}`, {
+      method: 'DELETE',
+      ...getRequestOptions(args),
+    }),
+  )();
+  if (!response.ok) {
+    throw new Error(
+      `Failed to delete Statsig dynamic config: ${response.statusText} ${await response.text()}`,
+    );
+  }
 }
 
 export async function getStatsigTag(

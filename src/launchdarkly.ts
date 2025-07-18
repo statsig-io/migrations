@@ -3,6 +3,7 @@ import type {
   StatsigCondition,
   StatsigConditionType,
   StatsigConfig,
+  StatsigDynamicConfigRule,
   StatsigEnvironment,
   StatsigOperatorType,
   StatsigOverride,
@@ -10,6 +11,7 @@ import type {
   TransformError,
   TransformResult,
 } from './types';
+import { RETURN_VALUE_WRAP_ATTRIBUTE, jsonContainsNull } from './util';
 
 import { capRuleName } from './util';
 import nullthrows from 'nullthrows';
@@ -50,6 +52,7 @@ export async function getLaunchDarklyConfigs(
     return {
       totalConfigCount: undefined,
       validConfigs: [],
+      noticesByConfigName: {},
       errorsByConfigName: { '': flagKeysResult.errors },
     };
   }
@@ -61,13 +64,22 @@ export async function getLaunchDarklyConfigs(
   const configTransformResult: ConfigTransformResult = {
     totalConfigCount: flagKeysResult.result.length,
     validConfigs: [],
+    noticesByConfigName: {},
     errorsByConfigName: {},
   };
 
   flags.forEach((flag) => {
-    const transformResult = transformFlagToGate(flag as LaunchDarklyFlag, args);
+    const transformResult = transformFlagToConfig(
+      flag as LaunchDarklyFlag,
+      args,
+    );
     if (transformResult.transformed) {
       configTransformResult.validConfigs.push(transformResult.result);
+      transformResult.notices?.forEach((notice) => {
+        configTransformResult.noticesByConfigName[notice.flagKey] =
+          configTransformResult.noticesByConfigName[notice.flagKey] || [];
+        configTransformResult.noticesByConfigName[notice.flagKey].push(notice);
+      });
     } else {
       transformResult.errors.forEach((error) => {
         configTransformResult.errorsByConfigName[error.flagKey] =
@@ -149,6 +161,12 @@ type LaunchDarklyFlag = {
   description: string;
   temporary: boolean;
   tags: string[];
+  variations: [
+    {
+      name: string;
+      value: unknown;
+    },
+  ];
   environments?: Record<
     string,
     {
@@ -194,6 +212,11 @@ type LaunchDarklyFlag = {
     }
   >;
 };
+type LaunchDarklyFlagVariation = LaunchDarklyFlag['variations'][number];
+type WrappedLaunchDarklyFlagVariation = {
+  name: string;
+  value: Record<string, unknown>;
+};
 type LaunchDarklyFlagEnvironment = NonNullable<
   LaunchDarklyFlag['environments']
 >[string];
@@ -207,11 +230,15 @@ type LaunchDarklyFlagFallthrough = NonNullable<
   LaunchDarklyFlagEnvironment['fallthrough']
 >;
 
-function transformFlagToGate(
+function transformFlagToConfig(
   flag: LaunchDarklyFlag,
   args: Args,
 ): TransformResult<StatsigConfig> {
-  if (flag.kind !== 'boolean') {
+  if (flag.kind === 'boolean') {
+    return transformFlagToGate(flag, args);
+  } else if (flag.kind === 'multivariate') {
+    return transformFlagToDynamicConfig(flag, args);
+  } else {
     return {
       transformed: false,
       errors: [
@@ -223,7 +250,12 @@ function transformFlagToGate(
       ],
     };
   }
+}
 
+function transformFlagToGate(
+  flag: LaunchDarklyFlag,
+  args: Args,
+): TransformResult<StatsigConfig> {
   const overrides: StatsigOverride[] = [];
   const rules: StatsigRule[] = [];
   const errors: TransformError[] = [];
@@ -234,6 +266,10 @@ function transformFlagToGate(
       (environmentData.targets ?? [])
         .concat(environmentData.contextTargets ?? [])
         .forEach((overrideTarget) => {
+          if (overrideTarget.values.length === 0) {
+            return;
+          }
+
           const contextKind = overrideTarget.contextKind ?? 'user';
           const unitID =
             contextKind === 'user'
@@ -323,6 +359,137 @@ function transformFlagToGate(
   };
 }
 
+function transformFlagToDynamicConfig(
+  flag: LaunchDarklyFlag,
+  args: Args,
+): TransformResult<StatsigConfig> {
+  const rules: StatsigDynamicConfigRule[] = [];
+  const errors: TransformError[] = [];
+
+  let variations: WrappedLaunchDarklyFlagVariation[];
+  let variationsWrapped = false;
+  if (areVariationValuesObjects(flag.variations)) {
+    variations = flag.variations;
+  } else {
+    variations = flag.variations.map(wrapVariationValues);
+    variationsWrapped = true;
+  }
+
+  if (jsonContainsNull(variations)) {
+    errors.push({
+      type: 'return_value_contains_null',
+      flagKey: flag.key,
+    });
+  }
+
+  Object.entries(flag.environments || {}).forEach(([env, environmentData]) => {
+    if (environmentData.targets && environmentData.targets.length > 0) {
+      // Dynamic config doesn't support overrides, so we need to create a rule for each target
+      (environmentData.targets ?? [])
+        .concat(environmentData.contextTargets ?? [])
+        .forEach((overrideTarget, idx) => {
+          if (overrideTarget.values.length === 0) {
+            return;
+          }
+
+          const contextKind = overrideTarget.contextKind ?? 'user';
+          const unitID =
+            contextKind === 'user'
+              ? 'userID'
+              : args.contextKindToUnitIDMapping?.[contextKind];
+          if (!unitID) {
+            errors.push({
+              type: 'unit_id_not_mapped',
+              contextKind,
+              flagKey: flag.key,
+            });
+            return;
+          }
+
+          const rule: StatsigDynamicConfigRule = {
+            name: `(${env}) ${flag.key} targets ${idx + 1}`,
+            conditions: [
+              contextKind === 'user'
+                ? {
+                    type: 'user_id',
+                    operator: 'any',
+                    targetValue: overrideTarget.values,
+                  }
+                : {
+                    type: 'unit_id',
+                    operator: 'any',
+                    customID: unitID,
+                    targetValue: overrideTarget.values,
+                  },
+            ],
+            environments: [args.environmentNameMapping[env] ?? env],
+            variants: [
+              {
+                name: variations[overrideTarget.variation].name,
+                passPercentage: 100,
+                returnValue: variations[overrideTarget.variation].value,
+              },
+            ],
+          };
+          rules.push(rule);
+        });
+    }
+
+    for (const [ruleIndex] of (environmentData.rules ?? []).entries()) {
+      const ruleResult = translateLaunchDarklyDynamicConfigRule(
+        flag.key,
+        env,
+        environmentData,
+        ruleIndex,
+        variations,
+        args,
+      );
+      if (ruleResult.transformed) {
+        rules.push(ruleResult.result);
+      } else {
+        errors.push(...ruleResult.errors);
+      }
+    }
+
+    const fallthroughRule = transformFallthroughDynamicConfigRule(
+      flag.key,
+      env,
+      environmentData,
+      variations,
+      args,
+    );
+    if (fallthroughRule.transformed) {
+      rules.push(fallthroughRule.result);
+    } else {
+      errors.push(...fallthroughRule.errors);
+    }
+  });
+
+  if (errors.length > 0) {
+    return {
+      transformed: false,
+      errors,
+    };
+  }
+
+  return {
+    transformed: true,
+    result: {
+      type: 'dynamic_config',
+      dynamicConfig: {
+        id: flag.key,
+        name: flag.name,
+        description: flag.description,
+        tags: flag.tags,
+        rules,
+      },
+    },
+    notices: variationsWrapped
+      ? [{ type: 'return_value_wrapped', flagKey: flag.key }]
+      : undefined,
+  };
+}
+
 // Translates a LaunchDarkly rule into one or more Statsig rules, accounting for complex segment matches.
 function translateLaunchDarklyRule(
   flagKey: string,
@@ -388,6 +555,124 @@ function translateLaunchDarklyRule(
   };
 }
 
+function translateLaunchDarklyDynamicConfigRule(
+  flagKey: string,
+  environmentName: string,
+  flagEnvironment: LaunchDarklyFlagEnvironment,
+  ruleIndex: number,
+  variations: WrappedLaunchDarklyFlagVariation[],
+  args: Args,
+): TransformResult<StatsigDynamicConfigRule> {
+  const rule = nullthrows(flagEnvironment.rules?.[ruleIndex]);
+  const errors: TransformError[] = [];
+  let variantPercentages:
+    | {
+        variation: number;
+        passPercentage: number;
+      }[]
+    | undefined;
+
+  if (!flagEnvironment.on) {
+    // flag is off, display "offVariation"
+    if (flagEnvironment.offVariation == null) {
+      errors.push({
+        type: 'unsupported_off_variation',
+        flagKey,
+        flagEnvironmentName: environmentName,
+      });
+    } else {
+      variantPercentages = [
+        {
+          variation: flagEnvironment.offVariation,
+          passPercentage: 100,
+        },
+      ];
+    }
+  } else {
+    const variantPercentagesResult = transformRuleVariantPercentages(
+      flagKey,
+      rule,
+    );
+    if (!variantPercentagesResult.transformed) {
+      errors.push(...variantPercentagesResult.errors);
+    } else {
+      variantPercentages = variantPercentagesResult.result;
+    }
+  }
+
+  // Translate each clause within the rule to a Statsig condition.
+  const conditions: StatsigCondition[] = [];
+  for (const clause of rule.clauses) {
+    const conditionResult = translateRuleClause(flagKey, clause, args);
+    if (conditionResult.transformed) {
+      conditions.push(conditionResult.result);
+    } else {
+      errors.push(...conditionResult.errors);
+    }
+  }
+
+  if (errors.length > 0) {
+    return {
+      transformed: false,
+      errors,
+    };
+  }
+  if (variantPercentages == null) {
+    throw new Error('variantPercentages is null but should not be');
+  }
+
+  //sending rule index to avoind 'Duplicate rule name(s) given' error for many unnamed rules
+  const ruleName =
+    '(' +
+    environmentName +
+    ') ' +
+    (rule.description
+      ? rule.description + ' import ' + (ruleIndex + 1)
+      : 'import ' + (ruleIndex + 1));
+
+  return {
+    transformed: true,
+    result: {
+      name: ruleName,
+      conditions,
+      environments: [
+        args.environmentNameMapping[environmentName] ?? environmentName,
+      ],
+      variants: variantPercentages.map((variant) => ({
+        name: variations[variant.variation].name,
+        passPercentage: variant.passPercentage,
+        returnValue: variations[variant.variation].value,
+      })),
+    },
+  };
+}
+
+function areVariationValuesObjects(
+  variations: LaunchDarklyFlagVariation[],
+): variations is WrappedLaunchDarklyFlagVariation[] {
+  // Statsig only supports objects for return values, but LaunchDarkly can be
+  // arbitrary. We need to wrap it if any of the variations in LD are not objects.
+  return !variations.some(
+    (variation) =>
+      Array.isArray(variation.value) ||
+      typeof variation.value === 'boolean' ||
+      typeof variation.value === 'number' ||
+      typeof variation.value === 'string' ||
+      variation.value == null,
+  );
+}
+
+function wrapVariationValues(
+  variation: LaunchDarklyFlagVariation,
+): WrappedLaunchDarklyFlagVariation {
+  return {
+    name: variation.name,
+    value: {
+      [RETURN_VALUE_WRAP_ATTRIBUTE]: variation.value,
+    },
+  };
+}
+
 function transformFallthroughRule(
   flagKey: string,
   environmentName: string,
@@ -426,6 +711,74 @@ function transformFallthroughRule(
   };
 }
 
+function transformFallthroughDynamicConfigRule(
+  flagKey: string,
+  environmentName: string,
+  flagEnvironment: LaunchDarklyFlagEnvironment,
+  variations: WrappedLaunchDarklyFlagVariation[],
+  args: Args,
+): TransformResult<StatsigDynamicConfigRule> {
+  const ruleName = '(' + environmentName + ') Fall through imported rule';
+  const errors: TransformError[] = [];
+
+  const fallthroughRule: StatsigDynamicConfigRule = {
+    name: ruleName,
+    conditions: [{ type: 'public' }],
+    environments: [
+      args.environmentNameMapping[environmentName] ?? environmentName,
+    ],
+  };
+
+  let variantPercentages;
+  if (!flagEnvironment.on) {
+    if (flagEnvironment.offVariation == null) {
+      errors.push({
+        type: 'unsupported_off_variation',
+        flagKey,
+        flagEnvironmentName: environmentName,
+      });
+    } else {
+      variantPercentages = [
+        {
+          variation: flagEnvironment.offVariation,
+          passPercentage: 100,
+        },
+      ];
+    }
+  } else if (flagEnvironment.fallthrough) {
+    const variantPercentagesResult = transformRuleVariantPercentages(
+      flagKey,
+      flagEnvironment.fallthrough,
+    );
+    if (!variantPercentagesResult.transformed) {
+      return variantPercentagesResult;
+    } else {
+      variantPercentages = variantPercentagesResult.result;
+    }
+  }
+
+  if (errors.length > 0) {
+    return {
+      transformed: false,
+      errors,
+    };
+  }
+  if (variantPercentages == null) {
+    throw new Error('variantPercentages is null but should not be');
+  }
+
+  fallthroughRule.variants = variantPercentages.map((variant) => ({
+    name: variations[variant.variation].name,
+    passPercentage: variant.passPercentage,
+    returnValue: variations[variant.variation].value,
+  }));
+
+  return {
+    transformed: true,
+    result: fallthroughRule,
+  };
+}
+
 function transformRulePassPercentage(
   flagKey: string,
   rule: LaunchDarklyFlagRule | LaunchDarklyFlagFallthrough,
@@ -446,6 +799,41 @@ function transformRulePassPercentage(
     return {
       transformed: true,
       result: 0,
+    };
+  } else {
+    return {
+      transformed: false,
+      errors: [{ type: 'unsupported_pass_percentage', flagKey }],
+    };
+  }
+}
+
+function transformRuleVariantPercentages(
+  flagKey: string,
+  rule: LaunchDarklyFlagRule | LaunchDarklyFlagFallthrough,
+): TransformResult<
+  {
+    variation: number;
+    passPercentage: number;
+  }[]
+> {
+  if (rule.rollout) {
+    return {
+      transformed: true,
+      result: rule.rollout.variations.map((variation) => ({
+        variation: variation.variation,
+        passPercentage: variation.weight / 1000,
+      })),
+    };
+  } else if (rule.variation != null) {
+    return {
+      transformed: true,
+      result: [
+        {
+          variation: rule.variation,
+          passPercentage: 100,
+        },
+      ],
     };
   } else {
     return {
