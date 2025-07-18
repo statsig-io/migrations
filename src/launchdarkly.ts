@@ -248,7 +248,11 @@ function transformFlagToGate(
             return;
           }
 
-          let environmentOverride = overrides.find((o) => o.unitID === unitID);
+          let environmentOverride = overrides.find(
+            (o) =>
+              o.unitID === unitID &&
+              o.environment === (args.environmentNameMapping[env] ?? env),
+          );
           if (!environmentOverride) {
             environmentOverride = {
               environment: args.environmentNameMapping[env] ?? env,
