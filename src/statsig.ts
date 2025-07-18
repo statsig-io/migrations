@@ -181,19 +181,6 @@ export async function createStatsigDynamicConfig(
     }),
   )();
   if (!response.ok) {
-    console.log(
-      JSON.stringify(
-        {
-          id: dynamicConfig.id,
-          name: dynamicConfig.name,
-          description: dynamicConfig.description,
-          tags: dynamicConfig.tags,
-          rules: dynamicConfig.rules,
-        },
-        null,
-        2,
-      ),
-    );
     throw new Error(
       `Failed to create Statsig dynamic config: ${response.statusText} ${await response.text()}`,
     );
