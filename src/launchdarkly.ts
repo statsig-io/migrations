@@ -25,7 +25,7 @@ type Args = {
   // Context Kinds are a LaunchDarkly concept that needs to map to Statsig. The
   // user needs to provide the mapping.
   contextKindToUnitIDMapping: Record<string, string>;
-  contextCustomAttributeMapping?: Record<string, Record<string, string>>;
+  contextCustomAttributeMapping: Record<string, Record<string, string>>;
   environmentNameMapping: Record<string, string>;
   throttle: <T>(fn: () => Promise<T>) => () => Promise<T>;
 };
@@ -893,7 +893,7 @@ function transformRuleClauseType(
   }
 
   const customField =
-    contextCustomAttributeMapping?.[contextKind]?.[clause.attribute];
+    contextCustomAttributeMapping[contextKind]?.[clause.attribute];
   if (!customField) {
     return {
       transformed: false,

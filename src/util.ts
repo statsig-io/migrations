@@ -11,7 +11,7 @@ export function transformErrorToString(error: TransformError): string {
     case 'unit_id_not_mapped':
       return `Unit ID not mapped for context kind: ${error.contextKind}`;
     case 'custom_attribute_not_mapped':
-      return `Custom attribute not mapped for context kind: ${error.contextKind}.${error.attribute}`;
+      return `Custom attribute "${error.attribute}" not mapped for context kind "${error.contextKind}". Use --context-attribute-to-custom-field ${error.contextKind}/${error.attribute}=<custom-field-name> to specify a mapping.`;
     case 'unsupported_pass_percentage':
       return `Unsupported pass percentage`;
     case 'unsupported_operator':
