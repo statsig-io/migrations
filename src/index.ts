@@ -71,6 +71,17 @@ async function main(): Promise<void> {
         )
       : {};
 
+    const contextAttributeToCustomFieldMappingArg =
+      argv['context-attribute-to-custom-field'];
+    const contextCustomAttributeMapping =
+      contextAttributeToCustomFieldMappingArg
+        ? parseContextAttributeToCustomFieldMapping(
+            !Array.isArray(contextAttributeToCustomFieldMappingArg)
+              ? [contextAttributeToCustomFieldMappingArg]
+              : contextAttributeToCustomFieldMappingArg,
+          )
+        : {};
+
     let environmentNameMappingArg = argv['environment-name-mapping'];
     const environmentNameMapping = environmentNameMappingArg
       ? Object.fromEntries(
@@ -87,6 +98,7 @@ async function main(): Promise<void> {
       projectID: launchdarklyProjectID,
       throttle: launchdarklyThrottle,
       contextKindToUnitIDMapping,
+      contextCustomAttributeMapping,
       environmentNameMapping,
     };
 
@@ -222,6 +234,27 @@ async function getYesNo(question: string): Promise<boolean> {
       resolve(answer.trim().toLowerCase() === 'y');
     });
   });
+}
+
+function parseContextAttributeToCustomFieldMapping(
+  contextAttributeToCustomFieldMappingArg: string[],
+): Record<string, Record<string, string>> {
+  const mapping: Record<string, Record<string, string>> = {};
+  contextAttributeToCustomFieldMappingArg.forEach((e) => {
+    if (typeof e !== 'string' || !e.includes('/') || !e.includes('=')) {
+      console.error(
+        `Invalid context attribute to custom field mapping: ${e}. Use --context-attribute-to-custom-field context-kind/attribute=custom-field-name to specify a mapping.`,
+      );
+      process.exit(1);
+    }
+    const [contextKind, rest] = e.split('/');
+    const [attribute, customFieldName] = rest.split('=');
+    if (!mapping[contextKind]) {
+      mapping[contextKind] = {};
+    }
+    mapping[contextKind][attribute] = customFieldName;
+  });
+  return mapping;
 }
 
 main();
