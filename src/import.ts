@@ -1,4 +1,5 @@
 import {
+  addStatsigGateOverrides,
   createStatsigGate,
   createStatsigTag,
   deleteStatsigGate,
@@ -76,5 +77,9 @@ export async function importConfigs(
       },
       args,
     );
+
+    if (config.overrides.length > 0) {
+      await addStatsigGateOverrides(gate.name, config.overrides, args);
+    }
   }
 }

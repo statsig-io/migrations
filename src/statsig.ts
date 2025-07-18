@@ -1,4 +1,4 @@
-import type { StatsigEnvironment, StatsigGate } from './types';
+import type { StatsigEnvironment, StatsigGate, StatsigOverride } from './types';
 
 const BASE_URL = 'https://statsigapi.net/console/v1';
 const API_VERSION = '20240601';
@@ -114,6 +114,29 @@ export async function deleteStatsigGate(
       `Failed to delete Statsig gate: ${response.statusText} ${await response.text()}`,
     );
   }
+}
+
+export async function addStatsigGateOverrides(
+  gateName: string,
+  overrides: StatsigOverride[],
+  args: Args,
+): Promise<void> {
+  const response = await args.throttle(() =>
+    fetch(`${BASE_URL}/gates/${gateName}/overrides`, {
+      method: 'POST',
+      ...getRequestOptions(args),
+      body: JSON.stringify({
+        environmentOverrides: overrides,
+      }),
+    }),
+  )();
+  if (!response.ok) {
+    throw new Error(
+      `Failed to create Statsig gate overrides: ${response.statusText} ${await response.text()}`,
+    );
+  }
+  const data = await response.json();
+  return data.data;
 }
 
 export async function getStatsigTag(
