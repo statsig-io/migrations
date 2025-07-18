@@ -1,0 +1,32 @@
+{
+  "name": "migrations",
+  "version": "0.0.1",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/statsig-io/migrations.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/statsig-io/migrations/issues"
+  },
+  "homepage": "https://github.com/statsig-io/migrations#readme",
+  "description": "",
+  "devDependencies": {
+    "@types/minimist": "^1.2.5",
+    "@types/node": "^24.0.13",
+    "prettier": "^3.6.2",
+    "prettier-plugin-import-sort": "^0.0.7",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "minimist": "^1.2.8",
+    "nullthrows": "^1.1.1",
+    "p-throttle": "^7.0.0"
+  }
+}
