@@ -62,6 +62,12 @@ export type TransformError = {
   | {
       type: 'return_value_contains_null';
     }
+  | {
+      type: 'unsupported_segment_type';
+    }
+  | {
+      type: 'segment_has_exclusions';
+    }
 );
 
 // Statsig API Types
@@ -81,6 +87,10 @@ export type StatsigConfig =
   | {
       type: 'dynamic_config';
       dynamicConfig: StatsigDynamicConfig;
+    }
+  | {
+      type: 'segment';
+      segment: StatsigSegment;
     };
 
 export type StatsigGate = {
@@ -98,6 +108,16 @@ export type StatsigDynamicConfig = {
   description?: string;
   tags?: string[];
   rules: StatsigDynamicConfigRule[];
+};
+
+export type StatsigSegment = {
+  id: string;
+  name: string;
+  description?: string;
+  type: 'id_list' | 'rule_based';
+  idType?: string;
+  tags?: string[];
+  rules: StatsigRule[];
 };
 
 export type StatsigRule = {
