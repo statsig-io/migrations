@@ -22,6 +22,10 @@ export function transformErrorToString(error: TransformError): string {
       return `Unsupported off variation: ${error.flagKey} in ${error.flagEnvironmentName}`;
     case 'return_value_contains_null':
       return `Return value contains null (which Statsig does not support)`;
+    case 'unsupported_segment_type':
+      return `Unsupported segment type: ${error.flagKey}`;
+    case 'segment_has_exclusions':
+      return `Segment has exclusions: ${error.flagKey}`;
     default:
       const exhaustive: never = error;
       return exhaustive;
