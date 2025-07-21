@@ -3,6 +3,7 @@ import type {
   StatsigEnvironment,
   StatsigGate,
   StatsigOverride,
+  StatsigSegment,
 } from './types';
 
 const BASE_URL = 'https://statsigapi.net/console/v1';
@@ -202,6 +203,72 @@ export async function deleteStatsigDynamicConfig(
   if (!response.ok) {
     throw new Error(
       `Failed to delete Statsig dynamic config: ${response.statusText} ${await response.text()}`,
+    );
+  }
+}
+
+export async function getStatsigSegment(
+  segmentName: string,
+  args: Args,
+): Promise<StatsigSegment | null> {
+  const response = await args.throttle(() =>
+    fetch(`${BASE_URL}/segments/${segmentName}`, {
+      ...getRequestOptions(args),
+    }),
+  )();
+  if (!response.ok) {
+    if (response.status === 404) {
+      return null;
+    }
+    throw new Error(
+      `Failed to get Statsig segment: ${response.statusText} ${await response.text()}`,
+    );
+  }
+  const data = await response.json();
+  return data.data;
+}
+
+export async function createStatsigSegment(
+  segment: StatsigSegment,
+  args: Args,
+): Promise<StatsigSegment> {
+  const response = await args.throttle(() =>
+    fetch(`${BASE_URL}/segments`, {
+      method: 'POST',
+      ...getRequestOptions(args),
+      body: JSON.stringify({
+        id: segment.id,
+        name: segment.name,
+        description: segment.description,
+        type: segment.type,
+        idType: segment.idType,
+        tags: segment.tags,
+        rules: segment.rules,
+      }),
+    }),
+  )();
+  if (!response.ok) {
+    throw new Error(
+      `Failed to create Statsig segment: ${response.statusText} ${await response.text()}`,
+    );
+  }
+  const data = await response.json();
+  return data.data;
+}
+
+export async function deleteStatsigSegment(
+  segmentName: string,
+  args: Args,
+): Promise<void> {
+  const response = await args.throttle(() =>
+    fetch(`${BASE_URL}/segments/${segmentName}`, {
+      method: 'DELETE',
+      ...getRequestOptions(args),
+    }),
+  )();
+  if (!response.ok) {
+    throw new Error(
+      `Failed to delete Statsig segment: ${response.statusText} ${await response.text()}`,
     );
   }
 }

@@ -142,13 +142,17 @@ export default async function cli(): Promise<void> {
     );
     console.log('');
     console.log(
-      `${configTransformResult.validConfigs.length} flags can imported:`,
+      `${configTransformResult.validConfigs.length} flags/segments can be imported:`,
     );
     configTransformResult.validConfigs.forEach((config) => {
       const configName =
-        config.type === 'gate' ? config.gate.name : config.dynamicConfig.name;
+        config.type === 'gate'
+          ? config.gate.name
+          : config.type === 'dynamic_config'
+            ? config.dynamicConfig.name
+            : config.segment.name;
       console.log(
-        `- ${config.type === 'gate' ? `[gate] ${configName}` : `[dynamic config] ${configName}`}`,
+        `- ${config.type === 'gate' ? `[gate] ${configName}` : config.type === 'dynamic_config' ? `[dynamic config] ${configName}` : `[segment] ${configName}`}`,
       );
       const notices = configTransformResult.noticesByConfigName[configName];
       if (notices) {
@@ -158,7 +162,7 @@ export default async function cli(): Promise<void> {
       }
     });
     console.log(
-      `\n${Object.keys(configTransformResult.errorsByConfigName).length} flags cannot be imported:`,
+      `\n${Object.keys(configTransformResult.errorsByConfigName).length} flags/segments cannot be imported:`,
     );
     Object.entries(configTransformResult.errorsByConfigName).forEach(
       ([configName, errors]) => {
@@ -170,20 +174,24 @@ export default async function cli(): Promise<void> {
     );
     console.log('');
     const proceed = await getYesNo(
-      'Proceed to import the flags that can be imported?',
+      'Proceed to import the flags/segments that can be imported?',
     );
     if (!proceed) {
       process.exit(0);
     }
 
     const validConfigNames = configTransformResult.validConfigs.map((config) =>
-      config.type === 'gate' ? config.gate.name : config.dynamicConfig.name,
+      config.type === 'gate'
+        ? config.gate.name
+        : config.type === 'dynamic_config'
+          ? config.dynamicConfig.name
+          : config.segment.name,
     );
     if (
       await needToDeleteExistingImportedConfigs(validConfigNames, statsigArgs)
     ) {
       const proceed = await getYesNo(
-        'There are existing imported gates or dynamic configs. Proceed to delete them?',
+        'There are existing imported gates, dynamic configs, or segments. Proceed to delete them?',
       );
       if (!proceed) {
         process.exit(0);
@@ -196,10 +204,10 @@ export default async function cli(): Promise<void> {
         );
       if (!deleteExistingImportedConfigsResult.ok) {
         console.log(
-          `Existing imported gates or dynamic configs without being tagged with "${LAUNCHDARKLY_IMPORT_TAG}": ${deleteExistingImportedConfigsResult.existingGatesWithoutImportTag.concat(deleteExistingImportedConfigsResult.existingDynamicConfigsWithoutImportTag).join(', ')}.`,
+          `Existing imported gates, dynamic configs, or segments without being tagged with "${LAUNCHDARKLY_IMPORT_TAG}": ${deleteExistingImportedConfigsResult.existingGatesWithoutImportTag.concat(deleteExistingImportedConfigsResult.existingDynamicConfigsWithoutImportTag).concat(deleteExistingImportedConfigsResult.existingSegmentsWithoutImportTag).join(', ')}.`,
         );
         console.log(
-          `Someone may have created those gates manually in Statsig. You can fix this by either tagging those gates with "${LAUNCHDARKLY_IMPORT_TAG}" or deleting them manually.`,
+          `Someone may have created those gates, dynamic configs, or segments manually in Statsig. You can fix this by either tagging those gates, dynamic configs, or segments with "${LAUNCHDARKLY_IMPORT_TAG}" or deleting them manually.`,
         );
         process.exit(1);
       }
@@ -212,7 +220,7 @@ export default async function cli(): Promise<void> {
       statsigArgs,
     );
     console.log(
-      `Imported ${configTransformResult.validConfigs.length} flags to Statsig.`,
+      `Imported ${configTransformResult.validConfigs.length} flags/segments to Statsig.`,
     );
   } else {
     console.error(

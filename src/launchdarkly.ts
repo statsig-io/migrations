@@ -8,6 +8,7 @@ import type {
   StatsigOperatorType,
   StatsigOverride,
   StatsigRule,
+  StatsigSegment,
   TransformError,
   TransformResult,
 } from './types';
@@ -56,7 +57,6 @@ export async function getLaunchDarklyConfigs(
       errorsByConfigName: { '': flagKeysResult.errors },
     };
   }
-
   const flags = await Promise.all(
     flagKeysResult.result.map((flagKey) => getFeatureFlag(flagKey, args)),
   );
@@ -88,7 +88,208 @@ export async function getLaunchDarklyConfigs(
       });
     }
   });
+
+  const environments = await listLaunchDarklyEnvironments(args);
+  const envKeys = environments.map((env) => env.name);
+  const ldSegmentsByEnv = Object.fromEntries(
+    await Promise.all(
+      envKeys.map(
+        async (envKey) =>
+          [envKey, await listSegmentsByEnv(envKey, args)] as const,
+      ),
+    ),
+  );
+  const segmentResults = transformAllSegments(ldSegmentsByEnv, args);
+  for (const segmentResult of segmentResults) {
+    if (segmentResult.transformed) {
+      configTransformResult.validConfigs.push({
+        type: 'segment',
+        segment: segmentResult.result,
+      });
+    } else {
+      segmentResult.errors.forEach((error) => {
+        configTransformResult.errorsByConfigName[error.flagKey] =
+          configTransformResult.errorsByConfigName[error.flagKey] || [];
+        configTransformResult.errorsByConfigName[error.flagKey].push(error);
+      });
+    }
+  }
+
   return configTransformResult;
+}
+
+type LaunchDarklySegment = {
+  key: string;
+  name: string;
+  description: string | null;
+  rules: LaunchDarklyFlagRule[];
+  deleted: boolean;
+  included: string[] | null;
+  excluded: string[] | null;
+  includedContexts:
+    | {
+        contextKind: string | null;
+        values: string[] | null;
+      }[]
+    | null;
+  excludedContexts:
+    | {
+        contextKind: string | null;
+        values: string[] | null;
+      }[]
+    | null;
+  unbounded: boolean;
+};
+
+async function listSegmentsByEnv(
+  environment: string,
+  { apiKey, projectID, throttle }: Args,
+): Promise<LaunchDarklySegment[]> {
+  const allSegments: LaunchDarklySegment[] = [];
+  let nextPage = `${BASE_URL}/segments/${projectID}/${environment}`;
+  do {
+    try {
+      const response = await throttle(() =>
+        fetch(nextPage, getRequestOptions({ apiKey })),
+      )();
+      if (!response.ok) {
+        throw new Error(
+          `Failed to list LaunchDarkly segments: ${response.statusText} ${await response.text()}`,
+        );
+      }
+      const data = await response.json();
+      allSegments.push(...data.items);
+      nextPage = data._links?.next?.href;
+    } catch (error) {
+      throw new Error(
+        `Failed to list LaunchDarkly segments: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    }
+  } while (nextPage);
+
+  return allSegments;
+}
+
+function transformAllSegments(
+  ldSegmentsByEnv: Record<string, LaunchDarklySegment[]>,
+  args: Args,
+): TransformResult<StatsigSegment>[] {
+  const ldSegmentsGroupedByEnv: Record<string, LaunchDarklySegment>[] = [];
+  for (const [env, ldSegments] of Object.entries(ldSegmentsByEnv)) {
+    for (const ldSegment of ldSegments) {
+      const ldSegmentByEnv = ldSegmentsGroupedByEnv.find(
+        (ldSegments) => Object.values(ldSegments)[0].key === ldSegment.key,
+      );
+      if (!ldSegmentByEnv) {
+        ldSegmentsGroupedByEnv.push({ [env]: ldSegment });
+      } else {
+        ldSegmentByEnv[env] = ldSegment;
+      }
+    }
+  }
+  return ldSegmentsGroupedByEnv.map((ldSegmentByEnv) =>
+    transformSegment(ldSegmentByEnv, args),
+  );
+}
+
+function transformSegment(
+  ldSegmentByEnv: Record<string, LaunchDarklySegment>, // env -> segment
+  args: Args,
+): TransformResult<StatsigSegment> {
+  const allLdSegments = Object.values(ldSegmentByEnv);
+  const key = allLdSegments[0].key;
+  const name = allLdSegments[0].name;
+  const description = allLdSegments[0].description;
+
+  if (allLdSegments.some((segment) => segment.unbounded)) {
+    return {
+      transformed: false,
+      errors: [{ type: 'unsupported_segment_type', flagKey: key }],
+    };
+  }
+  if (
+    allLdSegments.some((segment) => (segment.excluded ?? []).length > 0) &&
+    allLdSegments.some((segment) => (segment.excludedContexts ?? []).length > 0)
+  ) {
+    return {
+      transformed: false,
+      errors: [{ type: 'segment_has_exclusions', flagKey: key }],
+    };
+  }
+
+  const rules: StatsigRule[] = [];
+  Object.entries(ldSegmentByEnv).forEach(([env, ldSegment]) => {
+    if (ldSegment.included && ldSegment.included.length > 0) {
+      rules.push({
+        name: `(${env}) Included user IDs`,
+        passPercentage: 100,
+        conditions: [
+          {
+            operator: 'any',
+            targetValue: ldSegment.included,
+            type: 'user_id',
+          },
+        ],
+        environments: [args.environmentNameMapping[env] ?? env],
+      });
+    }
+
+    if (ldSegment.includedContexts && ldSegment.includedContexts.length > 0) {
+      ldSegment.includedContexts.forEach((context) => {
+        if (context.values == null) {
+          return;
+        }
+        rules.push({
+          name: `(${env}) Included ${context.contextKind} IDs`,
+          passPercentage: 100,
+          conditions: [
+            {
+              operator: 'any',
+              targetValue: context.values,
+              ...(!context.contextKind || context.contextKind === 'user'
+                ? {
+                    type: 'user_id',
+                  }
+                : {
+                    type: 'unit_id',
+                    customID:
+                      args.contextKindToUnitIDMapping[context.contextKind],
+                  }),
+            },
+          ],
+          environments: [args.environmentNameMapping[env] ?? env],
+        });
+      });
+    }
+
+    for (const [ruleIndex, rule] of (ldSegment.rules ?? []).entries()) {
+      const ruleResult = translateLaunchDarklyRule(
+        key,
+        env,
+        rule,
+        ruleIndex,
+        100,
+        args,
+      );
+      if (ruleResult.transformed) {
+        rules.push(ruleResult.result);
+      }
+    }
+  });
+
+  const segment: StatsigSegment = {
+    id: key,
+    name,
+    description: description ?? undefined,
+    type: 'rule_based',
+    rules,
+  };
+
+  return {
+    transformed: true,
+    result: segment,
+  };
 }
 
 async function listFeatureFlagKeys({
@@ -304,12 +505,18 @@ function transformFlagToGate(
         });
     }
 
-    for (const [ruleIndex] of (environmentData.rules ?? []).entries()) {
+    const percentageOverride = !environmentData.on
+      ? environmentData.offVariation === 0
+        ? 100
+        : 0
+      : null;
+    for (const [ruleIndex, rule] of (environmentData.rules ?? []).entries()) {
       const ruleResult = translateLaunchDarklyRule(
         flag.key,
         env,
-        environmentData,
+        rule,
         ruleIndex,
+        percentageOverride,
         args,
       );
       if (ruleResult.transformed) {
@@ -491,17 +698,16 @@ function transformFlagToDynamicConfig(
 function translateLaunchDarklyRule(
   flagKey: string,
   environmentName: string,
-  flagEnvironment: LaunchDarklyFlagEnvironment,
+  rule: LaunchDarklyFlagRule,
   ruleIndex: number,
+  percentageOverride: number | null,
   args: Args,
 ): TransformResult<StatsigRule> {
   let passPercentage;
-  const rule = nullthrows(flagEnvironment.rules?.[ruleIndex]);
   const errors: TransformError[] = [];
 
-  if (!flagEnvironment.on) {
-    // flag is off, display "offVariation"
-    passPercentage = flagEnvironment.offVariation === 0 ? 100 : 0;
+  if (percentageOverride != null) {
+    passPercentage = percentageOverride;
   } else {
     // Translate the launch darkly pass percentage to statsig pass percentage
     const passPercentageResult = transformRulePassPercentage(flagKey, rule);
@@ -879,6 +1085,9 @@ function transformRuleClauseType(
     country: 'country',
     email: 'email',
     ip: 'ip_address',
+    // Yes this is correct - it's not notSegmentMatch and it's not not-segment-match.
+    'not-segmentMatch': 'fails_segment',
+    segmentMatch: 'passes_segment',
   };
   if (typeMapping[clause.attribute]) {
     return {
@@ -915,8 +1124,8 @@ function transformRuleOperator(
   flagKey: string,
   operator: string,
   negate: boolean,
-): TransformResult<StatsigOperatorType> {
-  const mapping: Record<string, StatsigOperatorType> = {
+): TransformResult<StatsigOperatorType | undefined> {
+  const mapping: Record<string, StatsigOperatorType | undefined> = {
     lessThan: negate ? 'gte' : 'lt',
     lessThanOrEqual: 'lte',
     greaterThan: negate ? 'lte' : 'gt',
@@ -929,14 +1138,14 @@ function transformRuleOperator(
     semVerEqual: 'version_eq',
     startsWith: 'str_matches',
     endsWith: 'str_matches',
+    segmentMatch: undefined, // type indicates segment
   };
 
   // Logic to throw an error if the operator is not supported
-  const statsigOperator = mapping[operator];
-  if (statsigOperator) {
+  if (operator in mapping) {
     return {
       transformed: true,
-      result: statsigOperator,
+      result: mapping[operator],
     };
   } else {
     return {

@@ -2,11 +2,14 @@ import {
   addStatsigGateOverrides,
   createStatsigDynamicConfig,
   createStatsigGate,
+  createStatsigSegment,
   createStatsigTag,
   deleteStatsigDynamicConfig,
   deleteStatsigGate,
+  deleteStatsigSegment,
   getStatsigDynamicConfig,
   getStatsigGate,
+  getStatsigSegment,
   getStatsigTag,
 } from './statsig';
 
@@ -26,6 +29,10 @@ export async function needToDeleteExistingImportedConfigs(
     if (dynamicConfig) {
       return true;
     }
+    const segment = await getStatsigSegment(configName, args);
+    if (segment) {
+      return true;
+    }
   }
   return false;
 }
@@ -40,15 +47,19 @@ export async function deleteExistingImportedConfigs(
       ok: false;
       existingGatesWithoutImportTag: string[];
       existingDynamicConfigsWithoutImportTag: string[];
+      existingSegmentsWithoutImportTag: string[];
     }
 > {
   const existingGateNames = [];
   const existingDynamicConfigNames = [];
   const existingGatesWithoutImportTag = [];
   const existingDynamicConfigsWithoutImportTag = [];
+  const existingSegmentNames = [];
+  const existingSegmentsWithoutImportTag = [];
   for (const configName of configNames) {
     const gate = await getStatsigGate(configName, args);
     const dynamicConfig = await getStatsigDynamicConfig(configName, args);
+    const segment = await getStatsigSegment(configName, args);
     if (gate) {
       existingGateNames.push(configName);
       if (!gate.tags?.includes(importTag)) {
@@ -59,17 +70,24 @@ export async function deleteExistingImportedConfigs(
       if (!dynamicConfig.tags?.includes(importTag)) {
         existingDynamicConfigsWithoutImportTag.push(configName);
       }
+    } else if (segment) {
+      existingSegmentNames.push(configName);
+      if (!segment.tags?.includes(importTag)) {
+        existingSegmentsWithoutImportTag.push(configName);
+      }
     }
   }
 
   if (
     existingGatesWithoutImportTag.length > 0 ||
-    existingDynamicConfigsWithoutImportTag.length > 0
+    existingDynamicConfigsWithoutImportTag.length > 0 ||
+    existingSegmentsWithoutImportTag.length > 0
   ) {
     return {
       ok: false,
       existingGatesWithoutImportTag,
       existingDynamicConfigsWithoutImportTag,
+      existingSegmentsWithoutImportTag,
     };
   }
 
@@ -78,6 +96,9 @@ export async function deleteExistingImportedConfigs(
   }
   for (const dynamicConfigName of existingDynamicConfigNames) {
     await deleteStatsigDynamicConfig(dynamicConfigName, args);
+  }
+  for (const segmentName of existingSegmentNames) {
+    await deleteStatsigSegment(segmentName, args);
   }
 
   return { ok: true };
@@ -115,6 +136,12 @@ export async function importConfigs(
           ...dynamicConfig,
           tags: [...(dynamicConfig.tags || []), importTag],
         },
+        args,
+      );
+    } else if (config.type === 'segment') {
+      const segment = config.segment;
+      await createStatsigSegment(
+        { ...segment, tags: [...(segment.tags || []), importTag] },
         args,
       );
     } else {
