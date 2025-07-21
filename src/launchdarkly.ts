@@ -101,10 +101,7 @@ async function listFeatureFlagKeys({
   do {
     try {
       const response = await throttle(() =>
-        fetch(
-          `${BASE_URL}/flags/${projectID}?summary=0`,
-          getRequestOptions({ apiKey }),
-        ),
+        fetch(nextPage, getRequestOptions({ apiKey })),
       )();
       if (!response.ok) {
         throw new Error(
