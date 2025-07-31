@@ -92,6 +92,13 @@ export default async function cli(): Promise<void> {
         )
       : {};
 
+    const onlyEnvironmentArg = argv['only-environment'];
+    const onlyEnvironments = onlyEnvironmentArg
+      ? !Array.isArray(onlyEnvironmentArg)
+        ? [onlyEnvironmentArg]
+        : onlyEnvironmentArg
+      : null;
+
     const launchdarklyThrottle = pThrottle(launchdarklyApiThrottle);
     const launchdarklyArgs = {
       apiKey: launchdarklyApiKey,
@@ -100,6 +107,7 @@ export default async function cli(): Promise<void> {
       contextKindToUnitIDMapping,
       contextCustomAttributeMapping,
       environmentNameMapping,
+      onlyEnvironments,
     };
 
     const statsigEnvironments = await listStatsigEnvironments(statsigArgs);
