@@ -48,6 +48,12 @@ To map LaunchDarkly environments to Statsig environments that aren't already the
 npx @statsig/migrations --environment-name-mapping test=development --environment-name-mapping internal=staging
 ```
 
+If you want to only import for a specific environment, use `--only-environment`. E.g.
+
+```
+npx @statsig/migrations --only-environment production
+```
+
 ### Context kind mapping
 
 LaunchDarkly context kinds do not exist in Statsig the same way. Context kind keys can be mapped to Statsig's custom unit ids (see [docs](https://docs.statsig.com/guides/experiment-on-custom-id-types/)). The default user context kind is automatically mapped to the built-in `user_id` unit id in Statsig. Use `--context-kind-to-unit-id` to map any custom context kinds. The Statsig unit id needs to exist in Statsig already.

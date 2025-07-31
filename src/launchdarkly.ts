@@ -28,6 +28,7 @@ type Args = {
   contextKindToUnitIDMapping: Record<string, string>;
   contextCustomAttributeMapping: Record<string, Record<string, string>>;
   environmentNameMapping: Record<string, string>;
+  onlyEnvironments: string[] | null;
   throttle: <T>(fn: () => Promise<T>) => () => Promise<T>;
 };
 
@@ -90,7 +91,12 @@ export async function getLaunchDarklyConfigs(
   });
 
   const environments = await listLaunchDarklyEnvironments(args);
-  const envKeys = environments.map((env) => env.name);
+  const envKeys = environments
+    .map((env) => env.name)
+    .filter(
+      (envKey) =>
+        args.onlyEnvironments == null || args.onlyEnvironments.includes(envKey),
+    );
   const ldSegmentsByEnv = Object.fromEntries(
     await Promise.all(
       envKeys.map(
@@ -459,6 +465,10 @@ function transformFlagToGate(
   const errors: TransformError[] = [];
 
   Object.entries(flag.environments || {}).forEach(([env, environmentData]) => {
+    if (args.onlyEnvironments != null && !args.onlyEnvironments.includes(env)) {
+      return;
+    }
+
     if (environmentData.targets && environmentData.targets.length > 0) {
       // Build the override object
       (environmentData.targets ?? [])
@@ -587,6 +597,9 @@ function transformFlagToDynamicConfig(
   }
 
   Object.entries(flag.environments || {}).forEach(([env, environmentData]) => {
+    if (args.onlyEnvironments != null && !args.onlyEnvironments.includes(env)) {
+      return;
+    }
     if (environmentData.targets && environmentData.targets.length > 0) {
       // Dynamic config doesn't support overrides, so we need to create a rule for each target
       (environmentData.targets ?? [])
@@ -1327,12 +1340,18 @@ export async function ensureLaunchDarklySetup(
     }
 > {
   const launchdarklyEnvironments = await listLaunchDarklyEnvironments(args);
-  const unmappedEnvironments = launchdarklyEnvironments.filter(
-    (environment) =>
-      !statsigEnvironments.some(
-        (statsigEnvironment) => statsigEnvironment.name === environment.name,
-      ) && !args.environmentNameMapping[environment.name],
-  );
+  const unmappedEnvironments = launchdarklyEnvironments
+    .filter(
+      (environment) =>
+        args.onlyEnvironments == null ||
+        args.onlyEnvironments.includes(environment.name),
+    )
+    .filter(
+      (environment) =>
+        !statsigEnvironments.some(
+          (statsigEnvironment) => statsigEnvironment.name === environment.name,
+        ) && !args.environmentNameMapping[environment.name],
+    );
 
   const launchdarklyContextKinds = await listLaunchDarklyContextKinds(args);
 
