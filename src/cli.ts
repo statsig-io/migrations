@@ -82,7 +82,7 @@ export default async function cli(): Promise<void> {
           )
         : {};
 
-    let environmentNameMappingArg = argv['environment-name-mapping'];
+    let environmentNameMappingArg = argv['environment-key-mapping'];
     const environmentNameMapping = environmentNameMappingArg
       ? Object.fromEntries(
           (!Array.isArray(environmentNameMappingArg)
@@ -121,7 +121,7 @@ export default async function cli(): Promise<void> {
     if (!launchDarklySetupResult.ok) {
       if (launchDarklySetupResult.unmappedEnvironments.length > 0) {
         console.log(
-          `Unmapped environments: ${launchDarklySetupResult.unmappedEnvironments.join(', ')}.\nUse --environment-name-mapping ld-env-name=statsig-env-name to specify a mapping (can specify multiple).`,
+          `Unmapped environments: ${launchDarklySetupResult.unmappedEnvironments.join(', ')}.\nUse --environment-key-mapping ld-env-key=statsig-env-key to specify a mapping (can specify multiple).`,
         );
       }
       if (launchDarklySetupResult.invalidUnitIDs.length > 0) {
