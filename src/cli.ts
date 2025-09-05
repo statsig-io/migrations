@@ -190,10 +190,10 @@ export default async function cli(): Promise<void> {
 
     const validConfigNames = configTransformResult.validConfigs.map((config) =>
       config.type === 'gate'
-        ? config.gate.name
+        ? config.gate.id
         : config.type === 'dynamic_config'
-          ? config.dynamicConfig.name
-          : config.segment.name,
+          ? config.dynamicConfig.id
+          : config.segment.id,
     );
     if (
       await needToDeleteExistingImportedConfigs(validConfigNames, statsigArgs)
