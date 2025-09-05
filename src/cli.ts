@@ -38,7 +38,9 @@ export default async function cli(): Promise<void> {
 
   const statsigApiKey = process.env.STATSIG_API_KEY;
   if (!statsigApiKey) {
-    console.error('Missing required environment variable: STATSIG_API_KEY');
+    console.error(
+      'Missing required environment variable: STATSIG_API_KEY. To generate a Statsig Console API key, see https://docs.statsig.com/sdk-keys/api-keys/',
+    );
     process.exit(1);
   }
   const statsigThrottle = pThrottle(statsigApiThrottle);
@@ -51,7 +53,7 @@ export default async function cli(): Promise<void> {
     const launchdarklyApiKey = process.env.LAUNCHDARKLY_API_KEY;
     if (!launchdarklyApiKey) {
       console.error(
-        'Missing required environment variable: LAUNCHDARKLY_API_KEY',
+        'Missing required environment variable: LAUNCHDARKLY_API_KEY. To generate a LaunchDarkly API key, see https://launchdarkly.com/docs/home/account/api-create',
       );
       process.exit(1);
     }
