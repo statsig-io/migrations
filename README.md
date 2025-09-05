@@ -42,10 +42,10 @@ To generate a Statsig Console API key, see [Statsig docs](https://docs.statsig.c
 
 ### Environment mapping
 
-To map LaunchDarkly environments to Statsig environments that aren't already the same, provide `--environment-name-mapping` to the script. E.g.
+To map LaunchDarkly environments to Statsig environments that aren't already the same, provide `--environment-key-mapping` to the script. E.g.
 
 ```
-npx @statsig/migrations --environment-name-mapping test=development --environment-name-mapping internal=staging
+npx @statsig/migrations --environment-key-mapping test=development --environment-key-mapping internal=staging
 ```
 
 If you want to only import for a specific environment, use `--only-environment`. E.g.
