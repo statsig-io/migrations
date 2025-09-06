@@ -36,7 +36,7 @@ Before running the script, you need API keys for LaunchDarkly and Statsig. You c
 STATSIG_API_KEY=console-xxx LAUNCHDARKLY_API_KEY=api-yyyy npx @statsig/migrations --from launchdarkly --launchdarkly-project-id default <more-arguments>
 ```
 
-To generate a LaunchDarkly API key, see [LaunchDarkly docs](https://launchdarkly.com/docs/home/account/api).
+To generate a LaunchDarkly API key, see [LaunchDarkly docs](https://launchdarkly.com/docs/home/account/api-create).
 
 To generate a Statsig Console API key, see [Statsig docs](https://docs.statsig.com/sdk-keys/api-keys/).
 
