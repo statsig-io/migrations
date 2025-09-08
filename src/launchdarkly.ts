@@ -170,7 +170,6 @@ async function listSegmentsByEnv(
       throw new Error(
         `Failed to list LaunchDarkly segments: ${error instanceof Error ? error.message : String(error)}`,
       );
-      throw error;
     }
   } while (nextPage);
 
