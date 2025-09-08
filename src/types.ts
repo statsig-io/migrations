@@ -2,6 +2,8 @@
 
 export type ConfigTransformResult = {
   totalConfigCount: number | undefined;
+  totalFlagCount: number | undefined;
+  totalSegmentCount: number | undefined;
   validConfigs: StatsigConfig[];
   noticesByConfigName: Record<string, TransformNotice[]>;
   errorsByConfigName: Record<string, TransformError[]>;
