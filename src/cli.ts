@@ -148,7 +148,7 @@ export default async function cli(): Promise<void> {
 
     console.log('');
     console.log(
-      `Found a total of ${configTransformResult.totalConfigCount} flags in LaunchDarkly.`,
+      `Found a total of ${configTransformResult.totalFlagCount} flags and ${configTransformResult.totalSegmentCount} segments in LaunchDarkly.`,
     );
     console.log('');
     console.log(

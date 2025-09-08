@@ -53,6 +53,8 @@ export async function getLaunchDarklyConfigs(
   if (!flagKeysResult.transformed) {
     return {
       totalConfigCount: undefined,
+      totalFlagCount: undefined,
+      totalSegmentCount: undefined,
       validConfigs: [],
       noticesByConfigName: {},
       errorsByConfigName: { '': flagKeysResult.errors },
@@ -64,6 +66,8 @@ export async function getLaunchDarklyConfigs(
 
   const configTransformResult: ConfigTransformResult = {
     totalConfigCount: flagKeysResult.result.length,
+    totalFlagCount: flagKeysResult.result.length,
+    totalSegmentCount: undefined,
     validConfigs: [],
     noticesByConfigName: {},
     errorsByConfigName: {},
@@ -106,6 +110,9 @@ export async function getLaunchDarklyConfigs(
     ),
   );
   const segmentResults = transformAllSegments(ldSegmentsByEnv, args);
+  configTransformResult.totalSegmentCount = segmentResults.length;
+  configTransformResult.totalConfigCount =
+    flagKeysResult.result.length + segmentResults.length;
   for (const segmentResult of segmentResults) {
     if (segmentResult.transformed) {
       configTransformResult.validConfigs.push({
