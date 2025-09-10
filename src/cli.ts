@@ -201,7 +201,7 @@ export default async function cli(): Promise<void> {
       await needToDeleteExistingImportedConfigs(validConfigNames, statsigArgs)
     ) {
       const proceed = await getYesNo(
-        'There are existing imported gates, dynamic configs, or segments. Proceed to delete them?',
+        'Some LaunchDarkly flags you’re trying to import already exist in Statsig. Proceed to delete and re-import them?',
       );
       if (!proceed) {
         process.exit(0);
