@@ -64,6 +64,8 @@ export async function getLaunchDarklyConfigs(
     flagKeysResult.result.map((flagKey) => getFeatureFlag(flagKey, args)),
   );
 
+  const flagsByKey = new Map(flags.map((flag) => [flag.key, flag]));
+
   const configTransformResult: ConfigTransformResult = {
     totalConfigCount: flagKeysResult.result.length,
     totalFlagCount: flagKeysResult.result.length,
@@ -76,6 +78,7 @@ export async function getLaunchDarklyConfigs(
   flags.forEach((flag) => {
     const transformResult = transformFlagToConfig(
       flag as LaunchDarklyFlag,
+      flagsByKey,
       args,
     );
     if (transformResult.transformed) {
@@ -347,7 +350,7 @@ async function listFeatureFlagKeys({
 async function getFeatureFlag(
   flagKey: string,
   { apiKey, projectID, throttle }: Args,
-): Promise<Object> {
+): Promise<LaunchDarklyFlag> {
   const response = await throttle(() =>
     fetch(`${BASE_URL}/flags/${projectID}/${flagKey}`, {
       headers: {
@@ -419,6 +422,10 @@ type LaunchDarklyFlag = {
           }[];
         };
       };
+      prerequisites?: {
+        key: string;
+        variation: number;
+      }[];
     }
   >;
 };
@@ -442,12 +449,13 @@ type LaunchDarklyFlagFallthrough = NonNullable<
 
 function transformFlagToConfig(
   flag: LaunchDarklyFlag,
+  flagsByKey: Map<string, LaunchDarklyFlag>,
   args: Args,
 ): TransformResult<StatsigConfig> {
   if (flag.kind === 'boolean') {
-    return transformFlagToGate(flag, args);
+    return transformFlagToGate(flag, flagsByKey, args);
   } else if (flag.kind === 'multivariate') {
-    return transformFlagToDynamicConfig(flag, args);
+    return transformFlagToDynamicConfig(flag, flagsByKey, args);
   } else {
     return {
       transformed: false,
@@ -464,6 +472,7 @@ function transformFlagToConfig(
 
 function transformFlagToGate(
   flag: LaunchDarklyFlag,
+  flagsByKey: Map<string, LaunchDarklyFlag>,
   args: Args,
 ): TransformResult<StatsigConfig> {
   const overrides: StatsigOverride[] = [];
@@ -519,6 +528,30 @@ function transformFlagToGate(
             environmentOverride.failingIDs.push(...overrideTarget.values);
           }
         });
+    }
+
+    const offVariationIndex = environmentData.offVariation;
+    if (offVariationIndex == null) {
+      return {
+        transformed: false,
+        errors: [{ type: 'unsupported_off_variation', flagKey: flag.key }],
+      };
+    }
+    const offVariation = flag.variations[offVariationIndex];
+
+    const preqRules = transformPrerequisitesRule({
+      offVariation,
+      flagKey: flag.key,
+      flagEnvironment: environmentData,
+      isFlagBoolean: true,
+      flagsByKey,
+      environmentName: env,
+      args,
+    });
+    if (preqRules.transformed) {
+      rules.push(...preqRules.result);
+    } else {
+      errors.push(...preqRules.errors);
     }
 
     const percentageOverride = !environmentData.on
@@ -581,6 +614,7 @@ function transformFlagToGate(
 
 function transformFlagToDynamicConfig(
   flag: LaunchDarklyFlag,
+  flagsByKey: Map<string, LaunchDarklyFlag>,
   args: Args,
 ): TransformResult<StatsigConfig> {
   const rules: StatsigDynamicConfigRule[] = [];
@@ -656,6 +690,30 @@ function transformFlagToDynamicConfig(
           };
           rules.push(rule);
         });
+    }
+
+    const offVariationIndex = environmentData.offVariation;
+    if (offVariationIndex == null) {
+      return {
+        transformed: false,
+        errors: [{ type: 'unsupported_off_variation', flagKey: flag.key }],
+      };
+    }
+    const offVariation = variations[offVariationIndex];
+
+    const preqRules = transformPrerequisitesRule({
+      flagKey: flag.key,
+      offVariation,
+      flagEnvironment: environmentData,
+      isFlagBoolean: false,
+      flagsByKey,
+      environmentName: env,
+      args,
+    });
+    if (preqRules.transformed) {
+      rules.push(...preqRules.result);
+    } else {
+      errors.push(...preqRules.errors);
     }
 
     for (const [ruleIndex] of (environmentData.rules ?? []).entries()) {
@@ -998,6 +1056,125 @@ function transformFallthroughDynamicConfigRule(
   return {
     transformed: true,
     result: fallthroughRule,
+  };
+}
+
+function transformPrerequisitesRule({
+  flagKey,
+  offVariation,
+  flagEnvironment,
+  isFlagBoolean,
+  flagsByKey,
+  environmentName,
+  args,
+}: {
+  flagKey: string;
+  offVariation: LaunchDarklyFlagVariation;
+  flagEnvironment: LaunchDarklyFlagEnvironment;
+  isFlagBoolean: boolean;
+  flagsByKey: Map<string, LaunchDarklyFlag>;
+  environmentName: string;
+  args: Args;
+}): TransformResult<StatsigDynamicConfigRule[]> {
+  const preqRules: StatsigDynamicConfigRule[] = [];
+
+  // Statsig's rule equivalent of LD's offVariation, based on whether we're converting the flag into gate or dynamic config
+  const passPercentageForGate = (offVariation.value as boolean) ? 100 : 0;
+  const variantsForDynamicConfig = [
+    {
+      name: offVariation.name,
+      passPercentage: 100,
+      returnValue: offVariation.value as Record<string, unknown>,
+    },
+  ];
+  const offVariationMapping = isFlagBoolean
+    ? { passPercentage: passPercentageForGate }
+    : { variants: variantsForDynamicConfig };
+
+  for (const prerequisite of flagEnvironment.prerequisites ?? []) {
+    const {
+      key: prerequisiteFlagKey,
+      variation: prerequisiteFlagVariationIndex,
+    } = prerequisite;
+
+    const prerequisiteFlag = flagsByKey.get(prerequisiteFlagKey);
+    if (prerequisiteFlag == null) {
+      return {
+        transformed: false,
+        errors: [
+          {
+            type: 'prerequisite_flag_does_not_exist',
+            prerequisiteFlagKey,
+            flagKey,
+          },
+        ],
+      };
+    }
+
+    // Statsig configs can only depend on gates (boolean flags), not dynamic configs (multivariate flags)
+    if (prerequisiteFlag.kind !== 'boolean') {
+      return {
+        transformed: false,
+        errors: [
+          {
+            type: 'unsupported_prerequisite_flag_type',
+            prerequisiteFlagKind: prerequisiteFlag.kind,
+            prerequisiteFlagKey,
+            flagKey,
+          },
+        ],
+      };
+    }
+
+    const prerequisiteFlagEnvironment =
+      prerequisiteFlag.environments?.[environmentName];
+
+    const ruleName =
+      '(' +
+      environmentName +
+      ') Imported prerequisite rule ' +
+      prerequisiteFlagKey;
+
+    // On LD, if the prerequisite flag is off, serve only the off variation
+    // That maps to Statsig's rule: Everyone get served LD's offVariation 100% of the time
+    if (!prerequisiteFlagEnvironment?.on) {
+      return {
+        transformed: true,
+        result: [
+          {
+            name: ruleName,
+            conditions: [{ type: 'public' }],
+            ...offVariationMapping,
+            environments: [
+              args.environmentNameMapping[environmentName] ?? environmentName,
+            ],
+          },
+        ],
+      };
+    }
+
+    // prerequisiteFlagValue can only be a boolean, since prerequisite flag is boolean
+    const prerequisiteFlagValue =
+      prerequisiteFlag.variations[prerequisiteFlagVariationIndex].value;
+    // On LD, if the prerequisite flag is on, the prerequisite flag is true, moves the user to the next targeting
+    // The equivalent in Statsig is the fails_gate condition, serve the offVariation 100% of the time
+    // On LD, if the prerequisite flag is on, the prerequisite flag is false, moves the user to the next targeting
+    // The equivalent in Statsig is the passes_gate condition, serve the offVariation 100% of the time
+    const conditionType = prerequisiteFlagValue ? 'fails_gate' : 'passes_gate';
+
+    preqRules.push({
+      name: ruleName,
+      conditions: [{ type: conditionType, targetValue: prerequisiteFlagKey }],
+      ...offVariationMapping,
+      environments: [
+        args.environmentNameMapping[environmentName] ?? environmentName,
+      ],
+    });
+  }
+
+  return {
+    transformed: true,
+    result: preqRules,
   };
 }
 
