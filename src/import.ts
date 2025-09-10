@@ -1,3 +1,4 @@
+import { StatsigConfig, StatsigConfigWrapper } from './types';
 import {
   addStatsigGateOverrides,
   createStatsigDynamicConfig,
@@ -14,7 +15,23 @@ import {
 } from './statsig';
 
 import type { Args } from './statsig';
-import { StatsigConfig } from './types';
+
+export type ImportResult<T> =
+  | {
+      imported: true;
+      result: T;
+      notice?: string;
+    }
+  | {
+      imported: false;
+      error: string;
+    };
+
+export type ConfigImportResult = {
+  totalConfigImported: number | undefined;
+  errorsByConfigName: Record<string, string>;
+  noticesByConfigName: Record<string, string>;
+};
 
 export async function needToDeleteExistingImportedConfigs(
   configNames: string[],
@@ -105,33 +122,48 @@ export async function deleteExistingImportedConfigs(
 }
 
 export async function importConfigs(
-  configs: StatsigConfig[],
+  configs: StatsigConfigWrapper[],
   importTag: string,
   importTagDescription: string,
   args: Args,
-): Promise<void> {
+): Promise<ConfigImportResult> {
   // Make sure the import tag exists
   const importTagExists = await getStatsigTag(importTag, args);
   if (!importTagExists) {
     await createStatsigTag(importTag, importTagDescription, args);
   }
 
+  const importResults: ConfigImportResult = {
+    totalConfigImported: 0,
+    errorsByConfigName: {},
+    noticesByConfigName: {},
+  };
+
   for (const config of configs) {
+    let importResult: ImportResult<StatsigConfig | undefined>;
     if (config.type === 'gate') {
       const gate = config.gate;
-      await createStatsigGate(
+      importResult = await createStatsigGate(
         {
           ...gate,
           tags: [...(gate.tags || []), importTag],
         },
         args,
       );
-      if (config.overrides.length > 0) {
-        await addStatsigGateOverrides(gate.name, config.overrides, args);
+      if (importResult.imported && config.overrides.length > 0) {
+        const overrideImportResult = await addStatsigGateOverrides(
+          gate.name,
+          config.overrides,
+          args,
+        );
+
+        if (!overrideImportResult.imported) {
+          importResult.notice = overrideImportResult.error;
+        }
       }
     } else if (config.type === 'dynamic_config') {
       const dynamicConfig = config.dynamicConfig;
-      await createStatsigDynamicConfig(
+      importResult = await createStatsigDynamicConfig(
         {
           ...dynamicConfig,
           tags: [...(dynamicConfig.tags || []), importTag],
@@ -140,7 +172,7 @@ export async function importConfigs(
       );
     } else if (config.type === 'segment') {
       const segment = config.segment;
-      await createStatsigSegment(
+      importResult = await createStatsigSegment(
         { ...segment, tags: [...(segment.tags || []), importTag] },
         args,
       );
@@ -148,5 +180,24 @@ export async function importConfigs(
       const never: never = config;
       throw new Error(`Unexpected config type: ${never}`);
     }
+
+    const configName =
+      config.type === 'gate'
+        ? config.gate.name
+        : config.type === 'dynamic_config'
+          ? config.dynamicConfig.name
+          : config.segment.name;
+
+    if (importResult.imported) {
+      importResults.totalConfigImported =
+        (importResults.totalConfigImported || 0) + 1;
+      if (importResult.notice) {
+        importResults.noticesByConfigName[configName] = importResult.notice;
+      }
+    } else {
+      importResults.errorsByConfigName[configName] = importResult.error;
+    }
   }
+
+  return importResults;
 }

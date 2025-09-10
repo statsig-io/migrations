@@ -4,7 +4,7 @@ export type ConfigTransformResult = {
   totalConfigCount: number | undefined;
   totalFlagCount: number | undefined;
   totalSegmentCount: number | undefined;
-  validConfigs: StatsigConfig[];
+  validConfigs: StatsigConfigWrapper[];
   noticesByConfigName: Record<string, TransformNotice[]>;
   errorsByConfigName: Record<string, TransformError[]>;
 };
@@ -80,7 +80,7 @@ export type StatsigEnvironment = {
   requiresReview: boolean;
 };
 
-export type StatsigConfig =
+export type StatsigConfigWrapper =
   | {
       type: 'gate';
       gate: StatsigGate;
@@ -94,6 +94,8 @@ export type StatsigConfig =
       type: 'segment';
       segment: StatsigSegment;
     };
+
+export type StatsigConfig = StatsigGate | StatsigDynamicConfig | StatsigSegment;
 
 export type StatsigGate = {
   id: string;

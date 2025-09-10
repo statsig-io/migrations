@@ -2,7 +2,7 @@ import type {
   ConfigTransformResult,
   StatsigCondition,
   StatsigConditionType,
-  StatsigConfig,
+  StatsigConfigWrapper,
   StatsigDynamicConfigRule,
   StatsigEnvironment,
   StatsigOperatorType,
@@ -443,7 +443,7 @@ type LaunchDarklyFlagFallthrough = NonNullable<
 function transformFlagToConfig(
   flag: LaunchDarklyFlag,
   args: Args,
-): TransformResult<StatsigConfig> {
+): TransformResult<StatsigConfigWrapper> {
   if (flag.kind === 'boolean') {
     return transformFlagToGate(flag, args);
   } else if (flag.kind === 'multivariate') {
@@ -465,7 +465,7 @@ function transformFlagToConfig(
 function transformFlagToGate(
   flag: LaunchDarklyFlag,
   args: Args,
-): TransformResult<StatsigConfig> {
+): TransformResult<StatsigConfigWrapper> {
   const overrides: StatsigOverride[] = [];
   const rules: StatsigRule[] = [];
   const errors: TransformError[] = [];
@@ -582,7 +582,7 @@ function transformFlagToGate(
 function transformFlagToDynamicConfig(
   flag: LaunchDarklyFlag,
   args: Args,
-): TransformResult<StatsigConfig> {
+): TransformResult<StatsigConfigWrapper> {
   const rules: StatsigDynamicConfigRule[] = [];
   const errors: TransformError[] = [];
 

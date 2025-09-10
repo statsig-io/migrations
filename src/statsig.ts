@@ -6,6 +6,8 @@ import type {
   StatsigSegment,
 } from './types';
 
+import { ImportResult } from './import';
+
 const BASE_URL = 'https://statsigapi.net/console/v1';
 const API_VERSION = '20240601';
 
@@ -81,7 +83,7 @@ export async function getStatsigGate(
 export async function createStatsigGate(
   gate: StatsigGate,
   args: Args,
-): Promise<StatsigGate> {
+): Promise<ImportResult<StatsigGate>> {
   const response = await args.throttle(() =>
     fetch(`${BASE_URL}/gates`, {
       method: 'POST',
@@ -97,12 +99,17 @@ export async function createStatsigGate(
     }),
   )();
   if (!response.ok) {
-    throw new Error(
-      `Failed to create Statsig gate: ${response.statusText} ${await response.text()}`,
-    );
+    return {
+      imported: false,
+      error: `Failed to create Statsig gate: ${response.statusText} ${await response.text()}`,
+    };
   }
+
   const data = await response.json();
-  return data.data;
+  return {
+    imported: true,
+    result: data.data,
+  };
 }
 
 export async function deleteStatsigGate(
@@ -126,7 +133,7 @@ export async function addStatsigGateOverrides(
   gateName: string,
   overrides: StatsigOverride[],
   args: Args,
-): Promise<void> {
+): Promise<ImportResult<void>> {
   const response = await args.throttle(() =>
     fetch(`${BASE_URL}/gates/${gateName}/overrides`, {
       method: 'POST',
@@ -137,10 +144,16 @@ export async function addStatsigGateOverrides(
     }),
   )();
   if (!response.ok) {
-    throw new Error(
-      `Failed to create Statsig gate overrides: ${response.statusText} ${await response.text()}`,
-    );
+    return {
+      imported: false,
+      error: `Failed to create Statsig gate overrides: ${response.statusText} ${await response.text()}`,
+    };
   }
+
+  return {
+    imported: true,
+    result: undefined,
+  };
 }
 
 export async function getStatsigDynamicConfig(
@@ -167,7 +180,7 @@ export async function getStatsigDynamicConfig(
 export async function createStatsigDynamicConfig(
   dynamicConfig: StatsigDynamicConfig,
   args: Args,
-): Promise<StatsigDynamicConfig> {
+): Promise<ImportResult<StatsigDynamicConfig>> {
   const response = await args.throttle(() =>
     fetch(`${BASE_URL}/dynamic_configs`, {
       method: 'POST',
@@ -182,12 +195,16 @@ export async function createStatsigDynamicConfig(
     }),
   )();
   if (!response.ok) {
-    throw new Error(
-      `Failed to create Statsig dynamic config: ${response.statusText} ${await response.text()}`,
-    );
+    return {
+      imported: false,
+      error: `Failed to create Statsig dynamic config: ${response.statusText} ${await response.text()}`,
+    };
   }
   const data = await response.json();
-  return data.data;
+  return {
+    imported: true,
+    result: data.data,
+  };
 }
 
 export async function deleteStatsigDynamicConfig(
@@ -231,7 +248,7 @@ export async function getStatsigSegment(
 export async function createStatsigSegment(
   segment: StatsigSegment,
   args: Args,
-): Promise<StatsigSegment> {
+): Promise<ImportResult<StatsigSegment>> {
   const response = await args.throttle(() =>
     fetch(`${BASE_URL}/segments`, {
       method: 'POST',
@@ -248,12 +265,16 @@ export async function createStatsigSegment(
     }),
   )();
   if (!response.ok) {
-    throw new Error(
-      `Failed to create Statsig segment: ${response.statusText} ${await response.text()}`,
-    );
+    return {
+      imported: false,
+      error: `Failed to create Statsig segment: ${response.statusText} ${await response.text()}`,
+    };
   }
   const data = await response.json();
-  return data.data;
+  return {
+    imported: true,
+    result: data.data,
+  };
 }
 
 export async function deleteStatsigSegment(
