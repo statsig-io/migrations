@@ -2,7 +2,7 @@ import type {
   ConfigTransformResult,
   StatsigCondition,
   StatsigConditionType,
-  StatsigConfig,
+  StatsigConfigWrapper,
   StatsigDynamicConfigRule,
   StatsigEnvironment,
   StatsigOperatorType,
@@ -451,7 +451,7 @@ function transformFlagToConfig(
   flag: LaunchDarklyFlag,
   flagsByKey: Map<string, LaunchDarklyFlag>,
   args: Args,
-): TransformResult<StatsigConfig> {
+): TransformResult<StatsigConfigWrapper> {
   if (flag.kind === 'boolean') {
     return transformFlagToGate(flag, flagsByKey, args);
   } else if (flag.kind === 'multivariate') {
@@ -474,7 +474,7 @@ function transformFlagToGate(
   flag: LaunchDarklyFlag,
   flagsByKey: Map<string, LaunchDarklyFlag>,
   args: Args,
-): TransformResult<StatsigConfig> {
+): TransformResult<StatsigConfigWrapper> {
   const overrides: StatsigOverride[] = [];
   const rules: StatsigRule[] = [];
   const errors: TransformError[] = [];
@@ -616,7 +616,7 @@ function transformFlagToDynamicConfig(
   flag: LaunchDarklyFlag,
   flagsByKey: Map<string, LaunchDarklyFlag>,
   args: Args,
-): TransformResult<StatsigConfig> {
+): TransformResult<StatsigConfigWrapper> {
   const rules: StatsigDynamicConfigRule[] = [];
   const errors: TransformError[] = [];
 

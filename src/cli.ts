@@ -223,15 +223,42 @@ export default async function cli(): Promise<void> {
       }
     }
 
-    await importConfigs(
+    console.log('');
+
+    const importConfigsResult = await importConfigs(
       configTransformResult.validConfigs,
       LAUNCHDARKLY_IMPORT_TAG,
       LAUNCHDARKLY_IMPORT_TAG_DESCRIPTION,
       statsigArgs,
     );
     console.log(
-      `Imported ${configTransformResult.validConfigs.length} flags/segments to Statsig.`,
+      `Imported ${importConfigsResult.totalConfigImported} flags/segments to Statsig.`,
     );
+
+    console.log('');
+
+    if (Object.keys(importConfigsResult.noticesByConfigName).length > 0) {
+      console.log('Notices:');
+      Object.entries(importConfigsResult.noticesByConfigName).forEach(
+        ([configName, notice]) => {
+          console.log(`- ${configName}:`);
+          console.log(`  - ${notice}`);
+        },
+      );
+      console.log('');
+    }
+
+    if (Object.keys(importConfigsResult.errorsByConfigName).length > 0) {
+      console.log(
+        `\n${Object.keys(importConfigsResult.errorsByConfigName).length} flags/segments cannot be imported:`,
+      );
+      Object.entries(importConfigsResult.errorsByConfigName).forEach(
+        ([configName, error]) => {
+          console.log(`- ${configName}:`);
+          console.log(`  - ${error}`);
+        },
+      );
+    }
   } else {
     console.error(
       `Invalid --from value. Available values: ${Object.values(MigrateFrom).join(', ')}`,
