@@ -70,6 +70,15 @@ export type TransformError = {
   | {
       type: 'segment_has_exclusions';
     }
+  | {
+      type: 'unsupported_prerequisite_flag_type';
+      prerequisiteFlagKind: string;
+      prerequisiteFlagKey: string;
+    }
+  | {
+      type: 'prerequisite_flag_does_not_exist';
+      prerequisiteFlagKey: string;
+    }
 );
 
 // Statsig API Types

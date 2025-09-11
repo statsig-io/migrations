@@ -26,6 +26,10 @@ export function transformErrorToString(error: TransformError): string {
       return `Unsupported segment type: ${error.flagKey}`;
     case 'segment_has_exclusions':
       return `Segment has exclusions: ${error.flagKey}`;
+    case 'prerequisite_flag_does_not_exist':
+      return `Prerequisite flag ${error.prerequisiteFlagKey} does not exist`;
+    case 'unsupported_prerequisite_flag_type':
+      return `Unsupported prerequisite flag type: ${error.prerequisiteFlagKey} is of type ${error.prerequisiteFlagKind}`;
     default:
       const exhaustive: never = error;
       return exhaustive;
