@@ -1,4 +1,4 @@
-import { StatsigConfig, StatsigConfigWrapper } from './types';
+import { StatsigConfig, StatsigConfigWrapper, StatsigGate } from './types';
 import {
   addStatsigGateOverrides,
   createStatsigDynamicConfig,
@@ -67,20 +67,21 @@ export async function deleteExistingImportedConfigs(
       existingSegmentsWithoutImportTag: string[];
     }
 > {
-  const existingGateNames = [];
-  const existingDynamicConfigNames = [];
-  const existingGatesWithoutImportTag = [];
-  const existingDynamicConfigsWithoutImportTag = [];
-  const existingSegmentNames = [];
-  const existingSegmentsWithoutImportTag = [];
+  const existingGates: StatsigGate[] = [];
+  const existingDynamicConfigNames: string[] = [];
+  const existingGatesWithoutImportTag: string[] = [];
+  const existingDynamicConfigsWithoutImportTag: string[] = [];
+  const existingSegmentNames: string[] = [];
+  const existingSegmentsWithoutImportTag: string[] = [];
+
   for (const configName of configNames) {
     const gate = await getStatsigGate(configName, args);
     const dynamicConfig = await getStatsigDynamicConfig(configName, args);
     const segment = await getStatsigSegment(configName, args);
     if (gate) {
-      existingGateNames.push(configName);
+      existingGates.push(gate);
       if (!gate.tags?.includes(importTag)) {
-        existingGatesWithoutImportTag.push(configName);
+        existingGatesWithoutImportTag.push(gate.id);
       }
     } else if (dynamicConfig) {
       existingDynamicConfigNames.push(configName);
@@ -108,14 +109,15 @@ export async function deleteExistingImportedConfigs(
     };
   }
 
-  for (const gateName of existingGateNames) {
-    await deleteStatsigGate(gateName, args);
+  for (const segmentName of existingSegmentNames) {
+    await deleteStatsigSegment(segmentName, args);
+  }
+  const gatesOrderedByDependencies = reorderGatesByDependencies(existingGates);
+  for (const gate of gatesOrderedByDependencies) {
+    await deleteStatsigGate(gate.id, args);
   }
   for (const dynamicConfigName of existingDynamicConfigNames) {
     await deleteStatsigDynamicConfig(dynamicConfigName, args);
-  }
-  for (const segmentName of existingSegmentNames) {
-    await deleteStatsigSegment(segmentName, args);
   }
 
   return { ok: true };
@@ -152,7 +154,7 @@ export async function importConfigs(
       );
       if (importResult.imported && config.overrides.length > 0) {
         const overrideImportResult = await addStatsigGateOverrides(
-          gate.name,
+          gate.id,
           config.overrides,
           args,
         );
@@ -183,7 +185,7 @@ export async function importConfigs(
 
     const configName =
       config.type === 'gate'
-        ? config.gate.name
+        ? config.gate.id
         : config.type === 'dynamic_config'
           ? config.dynamicConfig.name
           : config.segment.name;
@@ -200,4 +202,73 @@ export async function importConfigs(
   }
 
   return importResults;
+}
+
+/**
+ * @param gates a list of gates
+ * @returns a list of gates ordered by dependencies. if gate A depends on gate B, then gate A will be before gate B in the list.
+ */
+export function reorderGatesByDependencies(
+  gates: StatsigGate[],
+): StatsigGate[] {
+  const gateMap = new Map<string, StatsigGate>(
+    gates.map((gate) => [gate.id, gate]),
+  );
+
+  const dependencies = new Map<string, Set<string>>();
+  for (const gate of gates) {
+    dependencies.set(gate.id, new Set());
+  }
+
+  for (const gate of gates) {
+    const gateName = gate.id;
+
+    for (const rule of gate.rules) {
+      for (const condition of rule.conditions) {
+        if (
+          condition.type === 'passes_gate' ||
+          condition.type === 'fails_gate'
+        ) {
+          const targetGate = condition.targetValue as string;
+          if (targetGate && gateMap.has(targetGate)) {
+            dependencies.get(targetGate)?.add(gateName);
+          }
+        }
+      }
+    }
+  }
+
+  const result: StatsigGate[] = [];
+  const remaining = new Set(gates.map((gate) => gate.id));
+
+  while (remaining.size > 0) {
+    let found = false;
+
+    // Find a gate that has no remaining dependencies
+    for (const gateName of remaining) {
+      const deps = dependencies.get(gateName) || new Set();
+      const hasUnresolvedDeps = Array.from(deps).some((dep) =>
+        remaining.has(dep),
+      );
+
+      if (!hasUnresolvedDeps) {
+        const gate = gateMap.get(gateName);
+        if (gate) {
+          result.push(gate);
+          remaining.delete(gateName);
+          found = true;
+          break;
+        }
+      }
+    }
+
+    if (!found) {
+      // This should not happen if there are no circular dependencies
+      throw new Error(
+        'Circular dependency detected or unable to resolve dependencies',
+      );
+    }
+  }
+
+  return result;
 }
