@@ -9,12 +9,17 @@ import {
   launchdarklyApiThrottle,
 } from './launchdarkly';
 import {
+  getConfigID,
+  transformErrorToString,
+  transformNoticeToString,
+} from './util';
+import {
   listStatsigEnvironments,
   listStatsigUnitIDs,
   statsigApiThrottle,
 } from './statsig';
-import { transformErrorToString, transformNoticeToString } from './util';
 
+import { StatsigConfigWrapper } from './types';
 import minimist from 'minimist';
 import pThrottle from 'p-throttle';
 import readline from 'readline';
@@ -197,6 +202,8 @@ export default async function cli(): Promise<void> {
           ? config.dynamicConfig.id
           : config.segment.id,
     );
+
+    let configToImport = configTransformResult.validConfigs;
     if (
       await needToDeleteExistingImportedConfigs(validConfigNames, statsigArgs)
     ) {
@@ -212,21 +219,33 @@ export default async function cli(): Promise<void> {
           LAUNCHDARKLY_IMPORT_TAG,
           statsigArgs,
         );
+
       if (!deleteExistingImportedConfigsResult.ok) {
+        const untaggedConfigIds =
+          deleteExistingImportedConfigsResult.existingGatesWithoutImportTag
+            .concat(
+              deleteExistingImportedConfigsResult.existingDynamicConfigsWithoutImportTag,
+            )
+            .concat(
+              deleteExistingImportedConfigsResult.existingSegmentsWithoutImportTag,
+            );
+        console.log('');
         console.log(
-          `Existing imported gates, dynamic configs, or segments without being tagged with "${LAUNCHDARKLY_IMPORT_TAG}": ${deleteExistingImportedConfigsResult.existingGatesWithoutImportTag.concat(deleteExistingImportedConfigsResult.existingDynamicConfigsWithoutImportTag).concat(deleteExistingImportedConfigsResult.existingSegmentsWithoutImportTag).join(', ')}.`,
+          `We avoid overriding Statsig configs that are not tagged with "${LAUNCHDARKLY_IMPORT_TAG}", so we cannot import these LaunchDarkly flags: ${untaggedConfigIds.join(', ')}.`,
         );
         console.log(
-          `Someone may have created those gates, dynamic configs, or segments manually in Statsig. You can fix this by either tagging those gates, dynamic configs, or segments with "${LAUNCHDARKLY_IMPORT_TAG}" or deleting them manually.`,
+          `Please tag the corresponding gates, dynamic configs, or segments in Statsig with "${LAUNCHDARKLY_IMPORT_TAG}" or delete them manually, after which you can re-run the script to migrate those flags.`,
         );
-        process.exit(1);
+        configToImport = configToImport.filter((config) => {
+          return !untaggedConfigIds.includes(getConfigID(config));
+        });
       }
     }
 
     console.log('');
 
     const importConfigsResult = await importConfigs(
-      configTransformResult.validConfigs,
+      configToImport,
       LAUNCHDARKLY_IMPORT_TAG,
       LAUNCHDARKLY_IMPORT_TAG_DESCRIPTION,
       statsigArgs,

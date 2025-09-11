@@ -1,4 +1,8 @@
-import type { TransformError, TransformNotice } from './types';
+import type {
+  StatsigConfigWrapper,
+  TransformError,
+  TransformNotice,
+} from './types';
 
 export const RETURN_VALUE_WRAP_ATTRIBUTE = 'value';
 
@@ -65,4 +69,12 @@ const MAX_RULE_NAME_LENGTH = 100;
 
 export function capRuleName(ruleName: string): string {
   return ruleName.substring(0, MAX_RULE_NAME_LENGTH);
+}
+
+export function getConfigID(config: StatsigConfigWrapper): string {
+  return config.type === 'gate'
+    ? config.gate.id
+    : config.type === 'dynamic_config'
+      ? config.dynamicConfig.id
+      : config.segment.id;
 }
