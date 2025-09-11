@@ -1,4 +1,4 @@
-import type { TransformError, TransformNotice } from './types';
+import type { StatsigRule, TransformError, TransformNotice } from './types';
 
 export const RETURN_VALUE_WRAP_ATTRIBUTE = 'value';
 
@@ -65,4 +65,76 @@ const MAX_RULE_NAME_LENGTH = 100;
 
 export function capRuleName(ruleName: string): string {
   return ruleName.substring(0, MAX_RULE_NAME_LENGTH);
+}
+
+/**
+ * @param configs a list of gates or segments
+ * @returns a list of configs ordered by dependencies. if config A depends on config B, then config A will be before config B in the list.
+ */
+export function sortConfigsFromDependentToIndependent<
+  T extends { id: string; rules: StatsigRule[] },
+>(configs: T[], configType: 'gate' | 'segment'): T[] {
+  const configMap = new Map<string, T>(
+    configs.map((config) => [config.id, config]),
+  );
+
+  // If configA has a rule that contains configB, configB -> configA
+  const dependencies = new Map<string, Set<string>>();
+  for (const config of configs) {
+    dependencies.set(config.id, new Set());
+  }
+
+  for (const config of configs) {
+    const configId = config.id;
+
+    for (const rule of config.rules) {
+      for (const condition of rule.conditions) {
+        if (
+          (configType === 'gate' &&
+            ['passes_gate', 'fails_gate'].includes(condition.type)) ||
+          (configType === 'segment' &&
+            ['passes_segment', 'fails_segment'].includes(condition.type))
+        ) {
+          const targetConfig = condition.targetValue as string;
+          if (targetConfig && configMap.has(targetConfig)) {
+            dependencies.get(targetConfig)?.add(configId);
+          }
+        }
+      }
+    }
+  }
+
+  const result: T[] = [];
+  const remaining = new Set(configs.map((config) => config.id));
+
+  while (remaining.size > 0) {
+    let found = false;
+
+    // Find a config that has no remaining dependencies
+    for (const configId of remaining) {
+      const deps = dependencies.get(configId) || new Set();
+      const hasUnresolvedDeps = Array.from(deps).some((dep) =>
+        remaining.has(dep),
+      );
+
+      if (!hasUnresolvedDeps) {
+        const config = configMap.get(configId);
+        if (config) {
+          result.push(config);
+          remaining.delete(configId);
+          found = true;
+          break;
+        }
+      }
+    }
+
+    if (!found) {
+      // This should not happen if there are no circular dependencies
+      throw new Error(
+        'Circular dependency detected or unable to resolve dependencies',
+      );
+    }
+  }
+
+  return result;
 }
