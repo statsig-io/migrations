@@ -152,55 +152,10 @@ export async function importConfigs(
     noticesByConfigName: {},
   };
 
-  for (const config of configs) {
-    let importResult: ImportResult<StatsigConfig | undefined>;
-    if (config.type === 'gate') {
-      const gate = config.gate;
-      importResult = await createStatsigGate(
-        {
-          ...gate,
-          tags: [...(gate.tags || []), importTag],
-        },
-        args,
-      );
-      if (importResult.imported && config.overrides.length > 0) {
-        const overrideImportResult = await addStatsigGateOverrides(
-          gate.name,
-          config.overrides,
-          args,
-        );
-
-        if (!overrideImportResult.imported) {
-          importResult.notice = overrideImportResult.error;
-        }
-      }
-    } else if (config.type === 'dynamic_config') {
-      const dynamicConfig = config.dynamicConfig;
-      importResult = await createStatsigDynamicConfig(
-        {
-          ...dynamicConfig,
-          tags: [...(dynamicConfig.tags || []), importTag],
-        },
-        args,
-      );
-    } else if (config.type === 'segment') {
-      const segment = config.segment;
-      importResult = await createStatsigSegment(
-        { ...segment, tags: [...(segment.tags || []), importTag] },
-        args,
-      );
-    } else {
-      const never: never = config;
-      throw new Error(`Unexpected config type: ${never}`);
-    }
-
-    const configName =
-      config.type === 'gate'
-        ? config.gate.name
-        : config.type === 'dynamic_config'
-          ? config.dynamicConfig.name
-          : config.segment.name;
-
+  const addImportResult = (
+    importResult: ImportResult<StatsigConfig>,
+    configName: string,
+  ) => {
     if (importResult.imported) {
       importResults.totalConfigImported =
         (importResults.totalConfigImported || 0) + 1;
@@ -209,6 +164,109 @@ export async function importConfigs(
       }
     } else {
       importResults.errorsByConfigName[configName] = importResult.error;
+    }
+  };
+
+  // Separate configs by type
+  const segments: StatsigConfigWrapper[] = [];
+  const gates: StatsigConfigWrapper[] = [];
+  const dynamicConfigs: StatsigConfigWrapper[] = [];
+
+  for (const config of configs) {
+    switch (config.type) {
+      case 'segment':
+        segments.push(config);
+        break;
+      case 'gate':
+        gates.push(config);
+        break;
+      case 'dynamic_config':
+        dynamicConfigs.push(config);
+        break;
+      default:
+        const never: never = config;
+        throw new Error(`Unexpected config type: ${never}`);
+    }
+  }
+
+  // Import in order: segments (ordered by dependencies) -> gates (ordered by dependencies) -> dynamic configs
+  const segmentObjects = segments
+    .filter(
+      (config): config is StatsigConfigWrapper & { type: 'segment' } =>
+        config.type === 'segment',
+    )
+    .map((config) => config.segment);
+  const segmentsFromIndependentToDependent =
+    sortConfigsFromDependentToIndependent(segmentObjects, 'segment').reverse();
+
+  for (const segment of segmentsFromIndependentToDependent) {
+    const importResult = await createStatsigSegment(
+      { ...segment, tags: [...(segment.tags || []), importTag] },
+      args,
+    );
+
+    addImportResult(importResult, segment.name);
+  }
+
+  const gateObjects = gates
+    .filter(
+      (config): config is StatsigConfigWrapper & { type: 'gate' } =>
+        config.type === 'gate',
+    )
+    .map((config) => config.gate);
+  const gatesFromIndependentToDependent = sortConfigsFromDependentToIndependent(
+    gateObjects,
+    'gate',
+  ).reverse();
+
+  const gateConfigMap = new Map(
+    gates
+      .filter(
+        (config): config is StatsigConfigWrapper & { type: 'gate' } =>
+          config.type === 'gate',
+      )
+      .map((config) => [config.gate.id, config]),
+  );
+
+  for (const gate of gatesFromIndependentToDependent) {
+    const config = gateConfigMap.get(gate.id);
+    if (!config) continue;
+
+    const importResult = await createStatsigGate(
+      {
+        ...gate,
+        tags: [...(gate.tags || []), importTag],
+      },
+      args,
+    );
+
+    if (importResult.imported && config.overrides.length > 0) {
+      const overrideImportResult = await addStatsigGateOverrides(
+        gate.name,
+        config.overrides,
+        args,
+      );
+
+      if (!overrideImportResult.imported) {
+        importResult.notice = overrideImportResult.error;
+      }
+    }
+
+    addImportResult(importResult, gate.name);
+  }
+
+  for (const config of dynamicConfigs) {
+    if (config.type === 'dynamic_config') {
+      const dynamicConfig = config.dynamicConfig;
+      const importResult = await createStatsigDynamicConfig(
+        {
+          ...dynamicConfig,
+          tags: [...(dynamicConfig.tags || []), importTag],
+        },
+        args,
+      );
+
+      addImportResult(importResult, dynamicConfig.name);
     }
   }
 
