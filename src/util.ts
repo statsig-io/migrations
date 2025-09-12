@@ -45,8 +45,12 @@ export function transformNoticeToString(notice: TransformNotice): string {
   switch (notice.type) {
     case 'return_value_wrapped':
       return `JSON value would be wrapped as { "${RETURN_VALUE_WRAP_ATTRIBUTE}": <value> } as Statsig does not support non-object JSON values`;
+    case 'unsupported_bucket_by':
+      return `Statsig does not support any randomization attribute other than key.`;
+    case 'inconsistent_context_kind':
+      return `Statsig does not support multiple randomization context kinds.`;
     default:
-      const exhaustive: never = notice.type;
+      const exhaustive: never = notice;
       return exhaustive;
   }
 }

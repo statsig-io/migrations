@@ -165,10 +165,12 @@ export default async function cli(): Promise<void> {
           : config.type === 'dynamic_config'
             ? config.dynamicConfig.name
             : config.segment.name;
+
+      const configID = getConfigID(config);
       console.log(
         `- ${config.type === 'gate' ? `[gate] ${configName}` : config.type === 'dynamic_config' ? `[dynamic config] ${configName}` : `[segment] ${configName}`}`,
       );
-      const notices = configTransformResult.noticesByConfigName[configName];
+      const notices = configTransformResult.noticesByConfigName[configID];
       if (notices) {
         for (const notice of notices) {
           console.log(`  - ${transformNoticeToString(notice)}`);

@@ -95,6 +95,7 @@ export async function createStatsigGate(
         tags: gate.tags,
         type: gate.type,
         rules: gate.rules,
+        idType: gate.idType,
       }),
     }),
   )();
@@ -191,6 +192,7 @@ export async function createStatsigDynamicConfig(
         description: dynamicConfig.description,
         tags: dynamicConfig.tags,
         rules: dynamicConfig.rules,
+        idType: dynamicConfig.idType,
       }),
     }),
   )();
