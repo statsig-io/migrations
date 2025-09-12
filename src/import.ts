@@ -85,34 +85,24 @@ export async function deleteExistingImportedConfigs(
     const dynamicConfig = await getStatsigDynamicConfig(configName, args);
     const segment = await getStatsigSegment(configName, args);
     if (gate) {
-      existingGates.push(gate);
-      if (!gate.tags?.includes(importTag)) {
+      if (gate.tags?.includes(importTag)) {
+        existingGates.push(gate);
+      } else {
         existingGatesWithoutImportTag.push(configName);
       }
     } else if (dynamicConfig) {
-      existingDynamicConfigNames.push(configName);
-      if (!dynamicConfig.tags?.includes(importTag)) {
+      if (dynamicConfig.tags?.includes(importTag)) {
+        existingDynamicConfigNames.push(configName);
+      } else {
         existingDynamicConfigsWithoutImportTag.push(configName);
       }
     } else if (segment) {
-      existingSegments.push(segment);
-      if (!segment.tags?.includes(importTag)) {
+      if (segment.tags?.includes(importTag)) {
+        existingSegments.push(segment);
+      } else {
         existingSegmentsWithoutImportTag.push(configName);
       }
     }
-  }
-
-  if (
-    existingGatesWithoutImportTag.length > 0 ||
-    existingDynamicConfigsWithoutImportTag.length > 0 ||
-    existingSegmentsWithoutImportTag.length > 0
-  ) {
-    return {
-      ok: false,
-      existingGatesWithoutImportTag,
-      existingDynamicConfigsWithoutImportTag,
-      existingSegmentsWithoutImportTag,
-    };
   }
 
   for (const dynamicConfigName of existingDynamicConfigNames) {
@@ -129,6 +119,19 @@ export async function deleteExistingImportedConfigs(
     sortConfigsFromDependentToIndependent(existingSegments, 'segment');
   for (const segment of segmentsFromDependentToIndependent) {
     await deleteStatsigSegment(segment.id, args);
+  }
+
+  if (
+    existingGatesWithoutImportTag.length > 0 ||
+    existingDynamicConfigsWithoutImportTag.length > 0 ||
+    existingSegmentsWithoutImportTag.length > 0
+  ) {
+    return {
+      ok: false,
+      existingGatesWithoutImportTag,
+      existingDynamicConfigsWithoutImportTag,
+      existingSegmentsWithoutImportTag,
+    };
   }
 
   return { ok: true };
