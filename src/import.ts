@@ -1,4 +1,10 @@
-import { StatsigConfig, StatsigConfigWrapper } from './types';
+import {
+  StatsigConfig,
+  StatsigConfigWrapper,
+  StatsigGate,
+  StatsigRule,
+  StatsigSegment,
+} from './types';
 import {
   addStatsigGateOverrides,
   createStatsigDynamicConfig,
@@ -67,18 +73,19 @@ export async function deleteExistingImportedConfigs(
       existingSegmentsWithoutImportTag: string[];
     }
 > {
-  const existingGateNames = [];
-  const existingDynamicConfigNames = [];
-  const existingGatesWithoutImportTag = [];
-  const existingDynamicConfigsWithoutImportTag = [];
-  const existingSegmentNames = [];
-  const existingSegmentsWithoutImportTag = [];
+  const existingGates: StatsigGate[] = [];
+  const existingDynamicConfigNames: string[] = [];
+  const existingGatesWithoutImportTag: string[] = [];
+  const existingDynamicConfigsWithoutImportTag: string[] = [];
+  const existingSegments: StatsigSegment[] = [];
+  const existingSegmentsWithoutImportTag: string[] = [];
+
   for (const configName of configNames) {
     const gate = await getStatsigGate(configName, args);
     const dynamicConfig = await getStatsigDynamicConfig(configName, args);
     const segment = await getStatsigSegment(configName, args);
     if (gate) {
-      existingGateNames.push(configName);
+      existingGates.push(gate);
       if (!gate.tags?.includes(importTag)) {
         existingGatesWithoutImportTag.push(configName);
       }
@@ -88,7 +95,7 @@ export async function deleteExistingImportedConfigs(
         existingDynamicConfigsWithoutImportTag.push(configName);
       }
     } else if (segment) {
-      existingSegmentNames.push(configName);
+      existingSegments.push(segment);
       if (!segment.tags?.includes(importTag)) {
         existingSegmentsWithoutImportTag.push(configName);
       }
@@ -108,14 +115,20 @@ export async function deleteExistingImportedConfigs(
     };
   }
 
-  for (const gateName of existingGateNames) {
-    await deleteStatsigGate(gateName, args);
-  }
   for (const dynamicConfigName of existingDynamicConfigNames) {
     await deleteStatsigDynamicConfig(dynamicConfigName, args);
   }
-  for (const segmentName of existingSegmentNames) {
-    await deleteStatsigSegment(segmentName, args);
+  const gatesFromDependentToIndependent = sortConfigsFromDependentToIndependent(
+    existingGates,
+    'gate',
+  );
+  for (const gate of gatesFromDependentToIndependent) {
+    await deleteStatsigGate(gate.id, args);
+  }
+  const segmentsFromDependentToIndependent =
+    sortConfigsFromDependentToIndependent(existingSegments, 'segment');
+  for (const segment of segmentsFromDependentToIndependent) {
+    await deleteStatsigSegment(segment.id, args);
   }
 
   return { ok: true };
@@ -200,4 +213,76 @@ export async function importConfigs(
   }
 
   return importResults;
+}
+
+/**
+ * @param configs a list of gates or segments
+ * @returns a list of configs ordered by dependencies. if config A depends on config B, then config A will be before config B in the list.
+ */
+export function sortConfigsFromDependentToIndependent<
+  T extends { id: string; rules: StatsigRule[] },
+>(configs: T[], configType: 'gate' | 'segment'): T[] {
+  const configMap = new Map<string, T>(
+    configs.map((config) => [config.id, config]),
+  );
+
+  // If configA has a rule that contains configB, configB -> configA
+  const dependencies = new Map<string, Set<string>>();
+  for (const config of configs) {
+    dependencies.set(config.id, new Set());
+  }
+
+  for (const config of configs) {
+    const configId = config.id;
+
+    for (const rule of config.rules) {
+      for (const condition of rule.conditions) {
+        if (
+          (configType === 'gate' &&
+            ['passes_gate', 'fails_gate'].includes(condition.type)) ||
+          (configType === 'segment' &&
+            ['passes_segment', 'fails_segment'].includes(condition.type))
+        ) {
+          const targetConfig = condition.targetValue as string;
+          if (targetConfig && configMap.has(targetConfig)) {
+            dependencies.get(targetConfig)?.add(configId);
+          }
+        }
+      }
+    }
+  }
+
+  const result: T[] = [];
+  const remaining = new Set(configs.map((config) => config.id));
+
+  while (remaining.size > 0) {
+    let found = false;
+
+    // Find a config that has no remaining dependencies
+    for (const configId of remaining) {
+      const deps = dependencies.get(configId) || new Set();
+      const hasUnresolvedDeps = Array.from(deps).some((dep) =>
+        remaining.has(dep),
+      );
+
+      if (!hasUnresolvedDeps) {
+        const config = configMap.get(configId);
+        if (config) {
+          result.push(config);
+          remaining.delete(configId);
+          found = true;
+          break;
+        }
+      }
+    }
+
+    if (!found) {
+      // This should not happen if there are no circular dependencies
+      throw new Error(
+        'Circular dependency detected or unable to resolve dependencies',
+      );
+    }
+  }
+
+  return result;
 }
