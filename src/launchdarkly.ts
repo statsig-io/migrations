@@ -47,18 +47,24 @@ export const launchdarklyApiThrottle = {
   interval: 500, //ms
 };
 
-export async function getLaunchDarklyConfigs(
-  args: Args,
-): Promise<ConfigTransformResult> {
+export async function getLaunchDarklyConfigs(args: Args): Promise<{
+  configTransformResult: ConfigTransformResult;
+  flags: LaunchDarklyFlag[];
+  segments: LaunchDarklySegment[];
+}> {
   const flagKeysResult = await listFeatureFlagKeys(args);
   if (!flagKeysResult.transformed) {
     return {
-      totalConfigCount: undefined,
-      totalFlagCount: undefined,
-      totalSegmentCount: undefined,
-      validConfigs: [],
-      noticesByConfigName: {},
-      errorsByConfigName: { '': flagKeysResult.errors },
+      configTransformResult: {
+        totalConfigCount: undefined,
+        totalFlagCount: undefined,
+        totalSegmentCount: undefined,
+        validConfigs: [],
+        noticesByConfigName: {},
+        errorsByConfigName: {},
+      },
+      flags: [],
+      segments: [],
     };
   }
   const flags = await Promise.all(
@@ -114,6 +120,7 @@ export async function getLaunchDarklyConfigs(
       ),
     ),
   );
+  const allSegments = Object.values(ldSegmentsByEnv).flat();
   const segmentResults = transformAllSegments(ldSegmentsByEnv, args);
   configTransformResult.totalSegmentCount = segmentResults.length;
   configTransformResult.totalConfigCount =
@@ -133,13 +140,14 @@ export async function getLaunchDarklyConfigs(
     }
   }
 
-  return configTransformResult;
+  return { configTransformResult, flags, segments: allSegments };
 }
 
-type LaunchDarklySegment = {
+export type LaunchDarklySegment = {
   key: string;
   name: string;
   description: string | null;
+  creationDate: number;
   rules: LaunchDarklyFlagRule[];
   deleted: boolean;
   included: string[] | null;
@@ -378,13 +386,21 @@ type LaunchDarklyFlagRollout = {
   bucketBy?: string;
 };
 
-type LaunchDarklyFlag = {
+type LaunchDarklyMaintainer = {
+  email: string;
+  firstName: string;
+  lastName: string;
+};
+
+export type LaunchDarklyFlag = {
   kind: string;
   key: string;
   name: string;
   description: string;
   temporary: boolean;
   tags: string[];
+  _maintainer: LaunchDarklyMaintainer;
+  creationDate: number;
   variations: [
     {
       name: string;
@@ -1749,4 +1765,21 @@ function breakOneMultipleSegmentRuleIntoMultipleRules(
     rules: [rule],
     notices: [],
   };
+}
+
+export function getLdFlagMaintainer(flag: LaunchDarklyFlag | undefined) {
+  if (!flag) {
+    return 'Unknown';
+  }
+  return flag._maintainer
+    ? `${flag._maintainer.firstName} ${flag._maintainer.lastName}`
+    : 'Unknown';
+}
+
+export function getLdObjectUrl(
+  key: string,
+  type: 'flag' | 'segment',
+  launchdarklyProjectID: string,
+) {
+  return `https://app.launchdarkly.com/projects/${launchdarklyProjectID}/${type}s/${key}`;
 }
