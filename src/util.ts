@@ -49,6 +49,8 @@ export function transformNoticeToString(notice: TransformNotice): string {
       return `Statsig does not support any randomization attribute other than key.`;
     case 'inconsistent_context_kind':
       return `Statsig does not support multiple randomization context kinds.`;
+    case 'multiple_segments_condition':
+      return `Statsig does not support multiple segments in a single condition. Please check flag "${notice.flagKey}" for conditions with multiple segments. We've only migrated the first segment in every condition.`;
     default:
       const exhaustive: never = notice;
       return exhaustive;
