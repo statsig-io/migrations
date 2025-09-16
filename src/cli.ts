@@ -330,33 +330,39 @@ export default async function cli(): Promise<void> {
       LAUNCHDARKLY_IMPORT_TAG_DESCRIPTION,
       statsigArgs,
     );
-    console.log(
-      `Imported ${importConfigsResult.totalConfigImported} flags/segments to Statsig.`,
+
+    const importedConfigs = importConfigsResult.filter(
+      (result) => result.imported,
     );
+    const notImportedConfigs = importConfigsResult.filter(
+      (result) => !result.imported,
+    );
+    const totalConfigImported = importedConfigs.length;
+    const totalConfigNotImported = notImportedConfigs.length;
 
-    console.log('');
+    console.log(`Imported ${totalConfigImported} flags/segments to Statsig.`);
 
-    if (Object.keys(importConfigsResult.noticesByConfigName).length > 0) {
-      console.log('Notices:');
-      Object.entries(importConfigsResult.noticesByConfigName).forEach(
-        ([configName, notice]) => {
-          console.log(`- ${configName}:`);
-          console.log(`  - ${notice}`);
-        },
-      );
+    importedConfigs.forEach((result) => {
+      const {
+        notice,
+        result: { config },
+      } = result;
+      if (notice) {
+        console.log(`- ${config.name}:`);
+        console.log(`  - ${notice}`);
+      }
+    });
+
+    if (totalConfigNotImported > 0) {
       console.log('');
-    }
-
-    if (Object.keys(importConfigsResult.errorsByConfigName).length > 0) {
       console.log(
-        `\n${Object.keys(importConfigsResult.errorsByConfigName).length} flags/segments cannot be imported:`,
+        `\n${totalConfigNotImported} flags/segments cannot be imported:`,
       );
-      Object.entries(importConfigsResult.errorsByConfigName).forEach(
-        ([configName, error]) => {
-          console.log(`- ${configName}:`);
-          console.log(`  - ${error}`);
-        },
-      );
+      notImportedConfigs.forEach((result) => {
+        const { error, configId } = result;
+        console.log(`- ${configId}:`);
+        console.log(`  - ${error}`);
+      });
     }
   } else {
     console.error(

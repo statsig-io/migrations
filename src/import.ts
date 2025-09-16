@@ -31,13 +31,8 @@ export type ImportResult<T> =
   | {
       imported: false;
       error: string;
+      configId: string;
     };
-
-export type ConfigImportResult = {
-  totalConfigImported: number | undefined;
-  errorsByConfigName: Record<string, string>;
-  noticesByConfigName: Record<string, string>;
-};
 
 export async function needToDeleteExistingImportedConfigs(
   configNames: string[],
@@ -142,32 +137,39 @@ export async function importConfigs(
   importTag: string,
   importTagDescription: string,
   args: Args,
-): Promise<ConfigImportResult> {
+): Promise<
+  ImportResult<{
+    type: 'gate' | 'dynamic_config' | 'segment';
+    config: StatsigConfig;
+  }>[]
+> {
   // Make sure the import tag exists
   const importTagExists = await getStatsigTag(importTag, args);
   if (!importTagExists) {
     await createStatsigTag(importTag, importTagDescription, args);
   }
 
-  const importResults: ConfigImportResult = {
-    totalConfigImported: 0,
-    errorsByConfigName: {},
-    noticesByConfigName: {},
-  };
+  const importResults: ImportResult<{
+    type: 'gate' | 'dynamic_config' | 'segment';
+    config: StatsigConfig;
+  }>[] = [];
 
   const addImportResult = (
     importResult: ImportResult<StatsigConfig>,
-    configName: string,
+    type: 'gate' | 'dynamic_config' | 'segment',
   ) => {
-    if (importResult.imported) {
-      importResults.totalConfigImported =
-        (importResults.totalConfigImported || 0) + 1;
-      if (importResult.notice) {
-        importResults.noticesByConfigName[configName] = importResult.notice;
-      }
-    } else {
-      importResults.errorsByConfigName[configName] = importResult.error;
+    if (!importResult.imported) {
+      importResults.push(importResult);
+      return;
     }
+
+    importResults.push({
+      ...importResult,
+      result: {
+        type,
+        config: importResult.result,
+      },
+    });
   };
 
   // Separate configs by type
@@ -208,7 +210,7 @@ export async function importConfigs(
       args,
     );
 
-    addImportResult(importResult, segment.name);
+    addImportResult(importResult, 'segment');
   }
 
   const gateObjects = gates
@@ -255,7 +257,7 @@ export async function importConfigs(
       }
     }
 
-    addImportResult(importResult, gate.name);
+    addImportResult(importResult, 'gate');
   }
 
   for (const config of dynamicConfigs) {
@@ -269,7 +271,7 @@ export async function importConfigs(
         args,
       );
 
-      addImportResult(importResult, dynamicConfig.name);
+      addImportResult(importResult, 'dynamic_config');
     }
   }
 

@@ -103,6 +103,7 @@ export async function createStatsigGate(
     return {
       imported: false,
       error: `Failed to create Statsig gate: ${response.statusText} ${await response.text()}`,
+      configId: gate.id,
     };
   }
 
@@ -148,6 +149,7 @@ export async function addStatsigGateOverrides(
     return {
       imported: false,
       error: `Failed to create Statsig gate overrides: ${response.statusText} ${await response.text()}`,
+      configId: gateName,
     };
   }
 
@@ -200,6 +202,7 @@ export async function createStatsigDynamicConfig(
     return {
       imported: false,
       error: `Failed to create Statsig dynamic config: ${response.statusText} ${await response.text()}`,
+      configId: dynamicConfig.id,
     };
   }
   const data = await response.json();
@@ -270,6 +273,7 @@ export async function createStatsigSegment(
     return {
       imported: false,
       error: `Failed to create Statsig segment: ${response.statusText} ${await response.text()}`,
+      configId: segment.id,
     };
   }
   const data = await response.json();
