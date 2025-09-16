@@ -275,6 +275,10 @@ export default async function cli(): Promise<void> {
       process.exit(0);
     }
 
+    const actuallyMigratedCsvOutputWriter = new CSVOutputWriter(
+      path.join(process.cwd(), 'actually_migrated_configs.csv'),
+    );
+
     const validConfigNames = configTransformResult.validConfigs.map((config) =>
       config.type === 'gate'
         ? config.gate.id
@@ -316,6 +320,39 @@ export default async function cli(): Promise<void> {
         console.log(
           `Please tag the corresponding gates, dynamic configs, or segments in Statsig with "${LAUNCHDARKLY_IMPORT_TAG}" or delete them manually, after which you can re-run the script to migrate those flags.`,
         );
+
+        untaggedConfigIds.forEach((configID) => {
+          const ldFlag = ldFlagsByKey.get(configID);
+          const ldSegment = ldSegmentsByKey.get(configID);
+          const ldType = ldFlag ? 'flag' : 'segment';
+
+          actuallyMigratedCsvOutputWriter.add({
+            ld_name:
+              ldType === 'segment'
+                ? (ldSegment?.name ?? '')
+                : (ldFlag?.name ?? ''),
+            ld_key: configID,
+            ld_url: getLdObjectUrl(configID, ldType, launchdarklyProjectID),
+            ld_type: ldType,
+            ld_project: launchdarklyProjectID,
+            ld_creation_date: new Date(
+              ldType === 'segment'
+                ? (ldSegment?.creationDate ?? '')
+                : (ldFlag?.creationDate ?? ''),
+            ).toLocaleString(),
+            statsig_name: undefined,
+            statsig_id: undefined,
+            statsig_type: undefined,
+            statsig_url: undefined,
+            statsig_created_time: undefined,
+            maintainer:
+              ldType === 'segment' ? 'Unknown' : getLdFlagMaintainer(ldFlag),
+            reason: `There is a Statsig config with the same id as this LD flag that are not tagged with "${LAUNCHDARKLY_IMPORT_TAG}". Please tag the Statsig config ${configID} with "${LAUNCHDARKLY_IMPORT_TAG}" or delete/rename it manually, after which you can re-run the script to migrate the flags.`,
+            actual_migration_status: false,
+            can_be_imported: true,
+          });
+        });
+
         configToImport = configToImport.filter((config) => {
           return !untaggedConfigIds.includes(getConfigID(config));
         });
@@ -345,12 +382,39 @@ export default async function cli(): Promise<void> {
     importedConfigs.forEach((result) => {
       const {
         notice,
-        result: { config },
+        result: { config, type: configType },
       } = result;
       if (notice) {
         console.log(`- ${config.name}:`);
         console.log(`  - ${notice}`);
       }
+
+      const ldFlag = ldFlagsByKey.get(config.id);
+      const ldSegment = ldSegmentsByKey.get(config.id);
+      const ldType = ldFlag ? 'flag' : 'segment';
+
+      actuallyMigratedCsvOutputWriter.add({
+        ld_name: config.name,
+        ld_key: config.id,
+        ld_url: getLdObjectUrl(config.id, ldType, launchdarklyProjectID),
+        ld_type: ldType,
+        ld_project: launchdarklyProjectID,
+        ld_creation_date: new Date(
+          ldType === 'segment'
+            ? (ldSegment?.creationDate ?? '')
+            : (ldFlag?.creationDate ?? ''),
+        ).toLocaleString(),
+        statsig_name: config.name,
+        statsig_id: config.id,
+        statsig_type: configType,
+        statsig_url: undefined, // TODO: Need to fetch the project ID using the API key
+        statsig_created_time: undefined, // TODO: Add createdTime field to the types and retrieve them here
+        maintainer:
+          ldType === 'segment' ? 'Unknown' : getLdFlagMaintainer(ldFlag),
+        reason: notice ?? '',
+        actual_migration_status: true,
+        can_be_imported: true,
+      });
     });
 
     if (totalConfigNotImported > 0) {
@@ -358,12 +422,45 @@ export default async function cli(): Promise<void> {
       console.log(
         `\n${totalConfigNotImported} flags/segments cannot be imported:`,
       );
+
       notImportedConfigs.forEach((result) => {
-        const { error, configId } = result;
+        const { configId, error } = result;
+        const ldFlag = ldFlagsByKey.get(configId);
+        const ldSegment = ldSegmentsByKey.get(configId);
+        const ldType = ldFlag ? 'flag' : 'segment';
+
         console.log(`- ${configId}:`);
         console.log(`  - ${error}`);
+
+        actuallyMigratedCsvOutputWriter.add({
+          ld_name: ldFlag?.name ?? ldSegment?.name ?? '',
+          ld_key: configId,
+          ld_url: getLdObjectUrl(configId, ldType, launchdarklyProjectID),
+          ld_type: ldType,
+          ld_project: launchdarklyProjectID,
+          ld_creation_date: new Date(
+            ldType === 'segment'
+              ? (ldSegment?.creationDate ?? '')
+              : (ldFlag?.creationDate ?? ''),
+          ).toLocaleString(),
+          statsig_name: undefined,
+          statsig_id: undefined,
+          statsig_type: undefined,
+          statsig_url: undefined,
+          statsig_created_time: undefined,
+          maintainer:
+            ldType === 'segment' ? 'Unknown' : getLdFlagMaintainer(ldFlag),
+          reason: error ?? '',
+          actual_migration_status: false,
+          can_be_imported: true,
+        });
       });
     }
+
+    actuallyMigratedCsvOutputWriter.concatenateFrom(
+      canBeImportedCsvOutputWriter,
+    );
+    await actuallyMigratedCsvOutputWriter.commit();
   } else {
     console.error(
       `Invalid --from value. Available values: ${Object.values(MigrateFrom).join(', ')}`,
@@ -430,7 +527,7 @@ type CSVOutput = {
 };
 
 class CSVOutputWriter {
-  private records: CSVOutput[] = [];
+  public records: CSVOutput[] = [];
   private outputPath: string;
 
   constructor(outputPath: string) {
@@ -439,6 +536,18 @@ class CSVOutputWriter {
 
   add(record: CSVOutput): void {
     this.records.push(record);
+  }
+
+  concatenateFrom(otherWriter: CSVOutputWriter): void {
+    const existingByKey = new Set<string>(
+      this.records.map((record) => record.ld_key),
+    );
+
+    otherWriter.records.forEach((record) => {
+      if (!existingByKey.has(record.ld_key)) {
+        this.records.push(record);
+      }
+    });
   }
 
   async commit(): Promise<void> {
