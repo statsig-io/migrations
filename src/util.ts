@@ -1,4 +1,9 @@
-import type { StatsigRule, TransformError, TransformNotice } from './types';
+import type {
+  StatsigConfigWrapper,
+  StatsigRule,
+  TransformError,
+  TransformNotice,
+} from './types';
 
 export const RETURN_VALUE_WRAP_ATTRIBUTE = 'value';
 
@@ -137,4 +142,12 @@ export function sortConfigsFromDependentToIndependent<
   }
 
   return result;
+}
+
+export function getConfigID(config: StatsigConfigWrapper): string {
+  return config.type === 'gate'
+    ? config.gate.id
+    : config.type === 'dynamic_config'
+      ? config.dynamicConfig.id
+      : config.segment.id;
 }
