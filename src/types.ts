@@ -26,6 +26,7 @@ export type TransformNotice = {
   | { type: 'unsupported_bucket_by' }
   | { type: 'return_value_wrapped' }
   | { type: 'inconsistent_context_kind' }
+  | { type: 'multiple_segments_condition'; ruleName: string }
 );
 
 export type TransformError = {

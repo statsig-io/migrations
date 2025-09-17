@@ -84,6 +84,7 @@ export async function getLaunchDarklyConfigs(
     );
     if (transformResult.transformed) {
       configTransformResult.validConfigs.push(transformResult.result);
+
       transformResult.notices?.forEach((notice) => {
         configTransformResult.noticesByConfigName[notice.flagKey] =
           configTransformResult.noticesByConfigName[notice.flagKey] || [];
@@ -578,8 +579,16 @@ function transformFlagToGate(
         percentageOverride,
         args,
       );
+
       if (ruleResult.transformed) {
-        rules.push(ruleResult.result);
+        const { rules: multipleRules, notices: multipleSegmentNotices } =
+          breakOneMultipleSegmentRuleIntoMultipleRules(
+            flag.key,
+            ruleResult.result,
+          );
+
+        rules.push(...multipleRules);
+        notices.push(...multipleSegmentNotices);
       } else {
         errors.push(...ruleResult.errors);
       }
@@ -754,8 +763,16 @@ function transformFlagToDynamicConfig(
         variations,
         args,
       );
+
       if (ruleResult.transformed) {
-        rules.push(ruleResult.result);
+        const { rules: multipleRules, notices: multipleSegmentNotices } =
+          breakOneMultipleSegmentRuleIntoMultipleRules(
+            flag.key,
+            ruleResult.result,
+          );
+
+        rules.push(...multipleRules);
+        notices.push(...multipleSegmentNotices);
       } else {
         errors.push(...ruleResult.errors);
       }
@@ -1671,5 +1688,65 @@ function transformContextKindToUnitID(
     transformed: true,
     result: unitID,
     notices,
+  };
+}
+
+/**
+ * LD allows one rule to target multiple segments. Statsig only supports one segment per rule.
+ * We need to transform each LD rule that targets segments into multiple Statsig rules.
+ *
+ * For MVP, we will only break down rules with one condition that targets multiple segments.
+ * We give notice to the users for the remaining cases.
+ *
+ * @param rule
+ * @returns
+ */
+function breakOneMultipleSegmentRuleIntoMultipleRules(
+  flagKey: string,
+  rule: StatsigRule,
+): {
+  rules: StatsigRule[];
+  notices: TransformNotice[];
+} {
+  if (
+    rule.conditions.length === 1 &&
+    ['passes_segment', 'fails_segment'].includes(rule.conditions[0].type) &&
+    Array.isArray(rule.conditions[0].targetValue)
+  ) {
+    const breakdownRules = rule.conditions[0].targetValue.map((segment) => ({
+      ...rule,
+      name: `${rule.name} (with ${segment} segment)`,
+      conditions: [{ ...rule.conditions[0], targetValue: segment }],
+    }));
+
+    return {
+      rules: breakdownRules,
+      notices: [],
+    };
+  }
+
+  if (
+    rule.conditions.length > 1 &&
+    rule.conditions.some(
+      (condition) =>
+        ['passes_segment', 'fails_segment'].includes(condition.type) &&
+        Array.isArray(condition.targetValue),
+    )
+  ) {
+    return {
+      rules: [rule],
+      notices: [
+        {
+          type: 'multiple_segments_condition',
+          flagKey: flagKey,
+          ruleName: rule.name,
+        },
+      ],
+    };
+  }
+
+  return {
+    rules: [rule],
+    notices: [],
   };
 }
