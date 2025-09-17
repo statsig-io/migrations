@@ -1,4 +1,9 @@
-import { StatsigConfig, StatsigConfigWrapper } from './types';
+import {
+  StatsigConfig,
+  StatsigConfigWrapper,
+  StatsigGate,
+  StatsigSegment,
+} from './types';
 import {
   addStatsigGateOverrides,
   createStatsigDynamicConfig,
@@ -15,6 +20,7 @@ import {
 } from './statsig';
 
 import type { Args } from './statsig';
+import { sortConfigsFromDependentToIndependent } from './util';
 
 export type ImportResult<T> =
   | {
@@ -67,18 +73,19 @@ export async function deleteExistingImportedConfigs(
       existingSegmentsWithoutImportTag: string[];
     }
 > {
-  const existingGateNames = [];
-  const existingDynamicConfigNames = [];
-  const existingGatesWithoutImportTag = [];
-  const existingDynamicConfigsWithoutImportTag = [];
-  const existingSegmentNames = [];
-  const existingSegmentsWithoutImportTag = [];
+  const existingGates: StatsigGate[] = [];
+  const existingDynamicConfigNames: string[] = [];
+  const existingGatesWithoutImportTag: string[] = [];
+  const existingDynamicConfigsWithoutImportTag: string[] = [];
+  const existingSegments: StatsigSegment[] = [];
+  const existingSegmentsWithoutImportTag: string[] = [];
+
   for (const configName of configNames) {
     const gate = await getStatsigGate(configName, args);
     const dynamicConfig = await getStatsigDynamicConfig(configName, args);
     const segment = await getStatsigSegment(configName, args);
     if (gate) {
-      existingGateNames.push(configName);
+      existingGates.push(gate);
       if (!gate.tags?.includes(importTag)) {
         existingGatesWithoutImportTag.push(configName);
       }
@@ -88,7 +95,7 @@ export async function deleteExistingImportedConfigs(
         existingDynamicConfigsWithoutImportTag.push(configName);
       }
     } else if (segment) {
-      existingSegmentNames.push(configName);
+      existingSegments.push(segment);
       if (!segment.tags?.includes(importTag)) {
         existingSegmentsWithoutImportTag.push(configName);
       }
@@ -108,14 +115,20 @@ export async function deleteExistingImportedConfigs(
     };
   }
 
-  for (const gateName of existingGateNames) {
-    await deleteStatsigGate(gateName, args);
-  }
   for (const dynamicConfigName of existingDynamicConfigNames) {
     await deleteStatsigDynamicConfig(dynamicConfigName, args);
   }
-  for (const segmentName of existingSegmentNames) {
-    await deleteStatsigSegment(segmentName, args);
+  const gatesFromDependentToIndependent = sortConfigsFromDependentToIndependent(
+    existingGates,
+    'gate',
+  );
+  for (const gate of gatesFromDependentToIndependent) {
+    await deleteStatsigGate(gate.id, args);
+  }
+  const segmentsFromDependentToIndependent =
+    sortConfigsFromDependentToIndependent(existingSegments, 'segment');
+  for (const segment of segmentsFromDependentToIndependent) {
+    await deleteStatsigSegment(segment.id, args);
   }
 
   return { ok: true };
