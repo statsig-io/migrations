@@ -6,6 +6,8 @@ import {
 import {
   ensureLaunchDarklySetup,
   getLaunchDarklyConfigs,
+  getLdFlagMaintainer,
+  getLdObjectUrl,
   launchdarklyApiThrottle,
 } from './launchdarkly';
 import {
@@ -19,8 +21,10 @@ import {
   statsigApiThrottle,
 } from './statsig';
 
+import { createObjectCsvWriter } from 'csv-writer';
 import minimist from 'minimist';
 import pThrottle from 'p-throttle';
+import path from 'path';
 import readline from 'readline';
 
 const LAUNCHDARKLY_IMPORT_TAG = 'Imported from LaunchDarkly';
@@ -147,8 +151,13 @@ export default async function cli(): Promise<void> {
       );
     }
 
-    const configTransformResult =
+    const { configTransformResult, flags, segments } =
       await getLaunchDarklyConfigs(launchdarklyArgs);
+
+    const ldFlagsByKey = new Map(flags.map((flag) => [flag.key, flag]));
+    const ldSegmentsByKey = new Map(
+      segments.map((segment) => [segment.key, segment]),
+    );
 
     console.log('');
     console.log(
@@ -158,6 +167,11 @@ export default async function cli(): Promise<void> {
     console.log(
       `${configTransformResult.validConfigs.length} flags/segments can be imported:`,
     );
+
+    const canBeImportedCsvOutputWriter = new CSVOutputWriter(
+      path.join(process.cwd(), 'can_be_imported.csv'),
+    );
+
     configTransformResult.validConfigs.forEach((config) => {
       const configName =
         config.type === 'gate'
@@ -167,6 +181,10 @@ export default async function cli(): Promise<void> {
             : config.segment.name;
 
       const configID = getConfigID(config);
+      const ldFlag = ldFlagsByKey.get(configID);
+      const ldSegment = ldSegmentsByKey.get(configID);
+      const ldType = ldFlag ? 'flag' : 'segment';
+
       console.log(
         `- ${config.type === 'gate' ? `[gate] ${configName}` : config.type === 'dynamic_config' ? `[dynamic config] ${configName}` : `[segment] ${configName}`}`,
       );
@@ -176,18 +194,79 @@ export default async function cli(): Promise<void> {
           console.log(`  - ${transformNoticeToString(notice)}`);
         }
       }
+
+      canBeImportedCsvOutputWriter.add({
+        ld_name: configName,
+        ld_key: configID,
+        ld_url: getLdObjectUrl(configID, ldType, launchdarklyProjectID),
+        ld_type: ldType,
+        ld_project: launchdarklyProjectID,
+        ld_creation_date: new Date(
+          ldType === 'segment'
+            ? (ldSegment?.creationDate ?? '')
+            : (ldFlag?.creationDate ?? ''),
+        ).toLocaleString(),
+        statsig_name: configName,
+        statsig_id: configID,
+        statsig_type: config.type,
+        statsig_url: undefined,
+        statsig_created_time: undefined,
+        maintainer:
+          ldType === 'segment' ? 'Unknown' : getLdFlagMaintainer(ldFlag),
+        reason: notices
+          ?.map((notice) => transformNoticeToString(notice))
+          .join(', '),
+        actual_migration_status: undefined,
+        can_be_imported: true,
+      });
     });
+
     console.log(
       `\n${Object.keys(configTransformResult.errorsByConfigName).length} flags/segments cannot be imported:`,
     );
     Object.entries(configTransformResult.errorsByConfigName).forEach(
-      ([configName, errors]) => {
-        console.log(`- ${configName}:`);
+      ([configID, errors]) => {
+        console.log(`- ${configID}:`);
         errors.forEach((error) => {
           console.log(`  - ${transformErrorToString(error)}`);
         });
+
+        const ldFlag = ldFlagsByKey.get(configID);
+        const ldSegment = ldSegmentsByKey.get(configID);
+        const ldType = ldFlag ? 'flag' : 'segment';
+
+        canBeImportedCsvOutputWriter.add({
+          ld_name:
+            ldType === 'segment'
+              ? (ldSegment?.name ?? '')
+              : (ldFlag?.name ?? ''),
+          ld_key: configID,
+          ld_url: getLdObjectUrl(configID, ldType, launchdarklyProjectID),
+          ld_type: ldType,
+          ld_project: launchdarklyProjectID,
+          ld_creation_date: new Date(
+            ldType === 'segment'
+              ? (ldSegment?.creationDate ?? '')
+              : (ldFlag?.creationDate ?? ''),
+          ).toLocaleString(),
+          statsig_name: undefined,
+          statsig_id: undefined,
+          statsig_type: undefined,
+          statsig_url: undefined,
+          statsig_created_time: undefined,
+          maintainer:
+            ldType === 'segment' ? 'Unknown' : getLdFlagMaintainer(ldFlag),
+          reason: errors
+            .map((error) => transformErrorToString(error))
+            .join(', '),
+          actual_migration_status: false,
+          can_be_imported: false,
+        });
       },
     );
+
+    await canBeImportedCsvOutputWriter.commit();
+
     console.log('');
     const proceed = await getYesNo(
       'Proceed to import the flags/segments that can be imported?',
@@ -320,4 +399,77 @@ function parseContextAttributeToCustomFieldMapping(
     mapping[contextKind][attribute] = customFieldName;
   });
   return mapping;
+}
+
+type CSVOutput = {
+  // LD
+  ld_name: string;
+  ld_key: string;
+  ld_url: string;
+  ld_type: string;
+  ld_project: string;
+  ld_creation_date: string;
+
+  // Statsig
+  statsig_name: string | undefined;
+  statsig_id: string | undefined;
+  statsig_type: string | undefined;
+  statsig_url: string | undefined;
+  statsig_created_time: string | undefined;
+
+  maintainer: string;
+  reason: string;
+  actual_migration_status: boolean | undefined;
+  can_be_imported: boolean | undefined;
+};
+
+class CSVOutputWriter {
+  private records: CSVOutput[] = [];
+  private outputPath: string;
+
+  constructor(outputPath: string) {
+    this.outputPath = outputPath;
+  }
+
+  add(record: CSVOutput): void {
+    this.records.push(record);
+  }
+
+  async commit(): Promise<void> {
+    if (this.records.length === 0) {
+      console.log('No records to write to CSV file.');
+      return;
+    }
+
+    const csvWriter = createObjectCsvWriter({
+      path: this.outputPath,
+      header: [
+        { id: 'ld_name', title: 'LD Name' },
+        { id: 'ld_key', title: 'LD Key' },
+        { id: 'ld_url', title: 'LD URL' },
+        { id: 'ld_type', title: 'LD Type' },
+        { id: 'ld_project', title: 'LD Project' },
+        { id: 'ld_creation_date', title: 'LD Creation Date' },
+        { id: 'statsig_name', title: 'Statsig Name' },
+        { id: 'statsig_id', title: 'Statsig ID' },
+        { id: 'statsig_type', title: 'Statsig Type' },
+        { id: 'statsig_url', title: 'Statsig URL' },
+        { id: 'statsig_created_time', title: 'Statsig Created Time' },
+        { id: 'maintainer', title: 'Maintainer' },
+        { id: 'reason', title: 'Reason' },
+        { id: 'actual_migration_status', title: 'Actual Migration Status' },
+        { id: 'can_be_imported', title: 'Can Be Imported' },
+      ],
+    });
+
+    try {
+      await csvWriter.writeRecords(this.records);
+      console.log(
+        `Successfully wrote ${this.records.length} records to ${this.outputPath}`,
+      );
+    } catch (error) {
+      console.error(`Error writing CSV file: ${error}`);
+      throw error;
+    }
+  }
 }
