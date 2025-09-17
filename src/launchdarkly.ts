@@ -494,6 +494,30 @@ function transformFlagToGate(
       return;
     }
 
+    const offVariationIndex = environmentData.offVariation;
+    if (offVariationIndex == null) {
+      return {
+        transformed: false,
+        errors: [{ type: 'unsupported_off_variation', flagKey: flag.key }],
+      };
+    }
+    const offVariation = flag.variations[offVariationIndex];
+
+    const preqRules = transformPrerequisitesRule({
+      offVariation,
+      flagKey: flag.key,
+      flagEnvironment: environmentData,
+      isFlagBoolean: true,
+      flagsByKey,
+      environmentName: env,
+      args,
+    });
+    if (preqRules.transformed) {
+      rules.push(...preqRules.result);
+    } else {
+      errors.push(...preqRules.errors);
+    }
+
     if (environmentData.targets && environmentData.targets.length > 0) {
       // Build the override object
       (environmentData.targets ?? [])
@@ -538,30 +562,6 @@ function transformFlagToGate(
             environmentOverride.failingIDs.push(...overrideTarget.values);
           }
         });
-    }
-
-    const offVariationIndex = environmentData.offVariation;
-    if (offVariationIndex == null) {
-      return {
-        transformed: false,
-        errors: [{ type: 'unsupported_off_variation', flagKey: flag.key }],
-      };
-    }
-    const offVariation = flag.variations[offVariationIndex];
-
-    const preqRules = transformPrerequisitesRule({
-      offVariation,
-      flagKey: flag.key,
-      flagEnvironment: environmentData,
-      isFlagBoolean: true,
-      flagsByKey,
-      environmentName: env,
-      args,
-    });
-    if (preqRules.transformed) {
-      rules.push(...preqRules.result);
-    } else {
-      errors.push(...preqRules.errors);
     }
 
     const percentageOverride = !environmentData.on
@@ -668,6 +668,31 @@ function transformFlagToDynamicConfig(
     if (args.onlyEnvironments != null && !args.onlyEnvironments.includes(env)) {
       return;
     }
+
+    const offVariationIndex = environmentData.offVariation;
+    if (offVariationIndex == null) {
+      return {
+        transformed: false,
+        errors: [{ type: 'unsupported_off_variation', flagKey: flag.key }],
+      };
+    }
+    const offVariation = variations[offVariationIndex];
+
+    const preqRules = transformPrerequisitesRule({
+      flagKey: flag.key,
+      offVariation,
+      flagEnvironment: environmentData,
+      isFlagBoolean: false,
+      flagsByKey,
+      environmentName: env,
+      args,
+    });
+    if (preqRules.transformed) {
+      rules.push(...preqRules.result);
+    } else {
+      errors.push(...preqRules.errors);
+    }
+
     if (environmentData.targets && environmentData.targets.length > 0) {
       // Dynamic config doesn't support overrides, so we need to create a rule for each target
       (environmentData.targets ?? [])
@@ -718,30 +743,6 @@ function transformFlagToDynamicConfig(
           };
           rules.push(rule);
         });
-    }
-
-    const offVariationIndex = environmentData.offVariation;
-    if (offVariationIndex == null) {
-      return {
-        transformed: false,
-        errors: [{ type: 'unsupported_off_variation', flagKey: flag.key }],
-      };
-    }
-    const offVariation = variations[offVariationIndex];
-
-    const preqRules = transformPrerequisitesRule({
-      flagKey: flag.key,
-      offVariation,
-      flagEnvironment: environmentData,
-      isFlagBoolean: false,
-      flagsByKey,
-      environmentName: env,
-      args,
-    });
-    if (preqRules.transformed) {
-      rules.push(...preqRules.result);
-    } else {
-      errors.push(...preqRules.errors);
     }
 
     for (const [ruleIndex] of (environmentData.rules ?? []).entries()) {
