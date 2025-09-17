@@ -10,6 +10,7 @@ import type {
   StatsigRule,
   StatsigSegment,
   TransformError,
+  TransformNotice,
   TransformResult,
 } from './types';
 import { RETURN_VALUE_WRAP_ATTRIBUTE, jsonContainsNull } from './util';
@@ -367,6 +368,15 @@ async function getFeatureFlag(
   return response.json();
 }
 
+type LaunchDarklyFlagRollout = {
+  variations: {
+    variation: number;
+    weight: number;
+  }[];
+  contextKind?: string;
+  bucketBy?: string;
+};
+
 type LaunchDarklyFlag = {
   kind: string;
   key: string;
@@ -406,21 +416,11 @@ type LaunchDarklyFlag = {
           negate: boolean;
         }[];
         variation?: number;
-        rollout?: {
-          variations: {
-            variation: number;
-            weight: number;
-          }[];
-        };
+        rollout?: LaunchDarklyFlagRollout;
       }[];
       fallthrough?: {
         variation?: number;
-        rollout?: {
-          variations: {
-            variation: number;
-            weight: number;
-          }[];
-        };
+        rollout?: LaunchDarklyFlagRollout;
       };
       prerequisites?: {
         key: string;
@@ -476,8 +476,18 @@ function transformFlagToGate(
   args: Args,
 ): TransformResult<StatsigConfigWrapper> {
   const overrides: StatsigOverride[] = [];
+  let idType = '';
   const rules: StatsigRule[] = [];
+  const notices: TransformNotice[] = [];
   const errors: TransformError[] = [];
+
+  const contextKindToUnitIDResult = transformContextKindToUnitID(flag, args);
+  if (contextKindToUnitIDResult.transformed) {
+    idType = contextKindToUnitIDResult.result;
+    notices.push(...(contextKindToUnitIDResult.notices ?? []));
+  } else {
+    errors.push(...contextKindToUnitIDResult.errors);
+  }
 
   Object.entries(flag.environments || {}).forEach(([env, environmentData]) => {
     if (args.onlyEnvironments != null && !args.onlyEnvironments.includes(env)) {
@@ -606,9 +616,11 @@ function transformFlagToGate(
         type: flag.temporary ? 'TEMPORARY' : 'PERMANENT',
         tags: flag.tags,
         rules,
+        idType: idType ?? 'user_id',
       },
       overrides,
     },
+    notices,
   };
 }
 
@@ -619,7 +631,8 @@ function transformFlagToDynamicConfig(
 ): TransformResult<StatsigConfigWrapper> {
   const rules: StatsigDynamicConfigRule[] = [];
   const errors: TransformError[] = [];
-
+  let idType = '';
+  const notices: TransformNotice[] = [];
   let variations: WrappedLaunchDarklyFlagVariation[];
   let variationsWrapped = false;
   if (areVariationValuesObjects(flag.variations)) {
@@ -629,11 +642,26 @@ function transformFlagToDynamicConfig(
     variationsWrapped = true;
   }
 
+  if (variationsWrapped) {
+    notices.push({
+      type: 'return_value_wrapped',
+      flagKey: flag.key,
+    });
+  }
+
   if (jsonContainsNull(variations)) {
     errors.push({
       type: 'return_value_contains_null',
       flagKey: flag.key,
     });
+  }
+
+  const contextKindToUnitIDResult = transformContextKindToUnitID(flag, args);
+  if (contextKindToUnitIDResult.transformed) {
+    idType = contextKindToUnitIDResult.result;
+    notices.push(...(contextKindToUnitIDResult.notices ?? []));
+  } else {
+    errors.push(...contextKindToUnitIDResult.errors);
   }
 
   Object.entries(flag.environments || {}).forEach(([env, environmentData]) => {
@@ -763,11 +791,10 @@ function transformFlagToDynamicConfig(
         description: flag.description,
         tags: flag.tags,
         rules,
+        idType: idType ?? 'user_id',
       },
     },
-    notices: variationsWrapped
-      ? [{ type: 'return_value_wrapped', flagKey: flag.key }]
-      : undefined,
+    notices,
   };
 }
 
@@ -1574,4 +1601,74 @@ export async function ensureLaunchDarklySetup(
     };
   }
   return { ok: true };
+}
+
+function transformContextKindToUnitID(
+  flag: LaunchDarklyFlag,
+  args: Args,
+): TransformResult<string> {
+  const errors: TransformError[] = [];
+  const notices: TransformNotice[] = [];
+
+  const allRollouts = Object.values(flag.environments ?? {})
+    .flatMap((environment) => [
+      ...(environment.rules?.map((rule) => rule.rollout) ?? []),
+      environment.fallthrough?.rollout,
+    ])
+    .filter((rollout) => rollout != null);
+
+  let contextKind = '';
+  let hasInconsistentContextKind = false;
+
+  allRollouts.forEach((rollout) => {
+    if (rollout.contextKind) {
+      if (contextKind && contextKind !== rollout.contextKind) {
+        hasInconsistentContextKind = true;
+      } else if (!contextKind) {
+        contextKind = rollout.contextKind;
+      }
+    }
+
+    if (rollout.bucketBy && rollout.bucketBy !== 'key') {
+      notices.push({
+        type: 'unsupported_bucket_by',
+        flagKey: flag.key,
+      });
+    }
+  });
+
+  if (!contextKind) {
+    contextKind = 'user';
+  }
+  if (hasInconsistentContextKind) {
+    notices.push({
+      type: 'inconsistent_context_kind',
+      flagKey: flag.key,
+    });
+  }
+
+  const unitID =
+    contextKind === 'user'
+      ? 'userID'
+      : args.contextKindToUnitIDMapping?.[contextKind];
+  if (!unitID) {
+    errors.push({
+      type: 'unit_id_not_mapped',
+      contextKind,
+      flagKey: flag.key,
+    });
+  }
+
+  if (errors.length > 0) {
+    return {
+      transformed: false,
+      errors,
+    };
+  }
+
+  return {
+    transformed: true,
+    result: unitID,
+    notices,
+  };
 }

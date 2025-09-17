@@ -21,9 +21,12 @@ export type TransformResult<T> =
     };
 
 export type TransformNotice = {
-  type: 'return_value_wrapped';
   flagKey: string;
-};
+} & (
+  | { type: 'unsupported_bucket_by' }
+  | { type: 'return_value_wrapped' }
+  | { type: 'inconsistent_context_kind' }
+);
 
 export type TransformError = {
   flagKey: string;
@@ -113,6 +116,7 @@ export type StatsigGate = {
   tags?: string[];
   type?: 'PERMANENT' | 'TEMPORARY';
   rules: StatsigRule[];
+  idType?: string;
 };
 
 export type StatsigDynamicConfig = {
@@ -121,6 +125,7 @@ export type StatsigDynamicConfig = {
   description?: string;
   tags?: string[];
   rules: StatsigDynamicConfigRule[];
+  idType?: string;
 };
 
 export type StatsigSegment = {
