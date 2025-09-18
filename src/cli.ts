@@ -16,11 +16,13 @@ import {
   transformNoticeToString,
 } from './util';
 import {
+  getStatsigCompany,
   listStatsigEnvironments,
   listStatsigUnitIDs,
   statsigApiThrottle,
 } from './statsig';
 
+import StatsigLogger from './utils/statsig-sdk';
 import { createObjectCsvWriter } from 'csv-writer';
 import minimist from 'minimist';
 import pThrottle from 'p-throttle';
@@ -36,11 +38,15 @@ enum MigrateFrom {
 
 export default async function cli(): Promise<void> {
   const argv = minimist(process.argv.slice(2));
+  const statsigLogger = new StatsigLogger();
 
   const from = argv.from;
 
+  statsigLogger.setProvider(from);
+
   if (!from) {
     console.error('Missing required arguments: --from');
+    statsigLogger.shutdown();
     process.exit(1);
   }
 
@@ -49,6 +55,7 @@ export default async function cli(): Promise<void> {
     console.error(
       'Missing required environment variable: STATSIG_API_KEY. To generate a Statsig Console API key, see https://docs.statsig.com/sdk-keys/api-keys/',
     );
+    statsigLogger.shutdown();
     process.exit(1);
   }
   const statsigThrottle = pThrottle(statsigApiThrottle);
@@ -57,17 +64,30 @@ export default async function cli(): Promise<void> {
     throttle: statsigThrottle,
   };
 
+  const statsigCompany = await getStatsigCompany(statsigArgs);
+  if (!statsigCompany) {
+    statsigLogger.logEvent('statsig_company_not_found');
+  }
+
+  statsigLogger.logEvent(
+    'init_migration_script',
+    statsigCompany?.companyName,
+    statsigCompany,
+  );
+
   if (from === MigrateFrom.LaunchDarkly) {
     const launchdarklyApiKey = process.env.LAUNCHDARKLY_API_KEY;
     if (!launchdarklyApiKey) {
       console.error(
         'Missing required environment variable: LAUNCHDARKLY_API_KEY. To generate a LaunchDarkly API key, see https://launchdarkly.com/docs/home/account/api-create',
       );
+      statsigLogger.shutdown();
       process.exit(1);
     }
     const launchdarklyProjectID = argv['launchdarkly-project-id'];
     if (!launchdarklyProjectID) {
       console.error('Missing required argument: --launchdarkly-project-id');
+      statsigLogger.shutdown();
       process.exit(1);
     }
 
@@ -89,6 +109,7 @@ export default async function cli(): Promise<void> {
             !Array.isArray(contextAttributeToCustomFieldMappingArg)
               ? [contextAttributeToCustomFieldMappingArg]
               : contextAttributeToCustomFieldMappingArg,
+            statsigLogger,
           )
         : {};
 
@@ -144,6 +165,7 @@ export default async function cli(): Promise<void> {
           `Missing unit IDs for context kinds: ${launchDarklySetupResult.contextKindsWithoutUnitIDs.join(', ')}.\nUse --context-kind-to-unit-id context-kind=unit_id to specify a mapping (can specify multiple).`,
         );
       }
+      statsigLogger.shutdown();
       process.exit(1);
     } else {
       console.log(
@@ -272,6 +294,7 @@ export default async function cli(): Promise<void> {
       'Proceed to import the flags/segments that can be imported?',
     );
     if (!proceed) {
+      statsigLogger.shutdown();
       process.exit(0);
     }
 
@@ -295,6 +318,7 @@ export default async function cli(): Promise<void> {
         'Some LaunchDarkly flags you’re trying to import already exist in Statsig. Proceed to delete and re-import them?',
       );
       if (!proceed) {
+        statsigLogger.shutdown();
         process.exit(0);
       }
       const deleteExistingImportedConfigsResult =
@@ -465,6 +489,7 @@ export default async function cli(): Promise<void> {
     console.error(
       `Invalid --from value. Available values: ${Object.values(MigrateFrom).join(', ')}`,
     );
+    statsigLogger.shutdown();
     process.exit(1);
   }
 }
@@ -485,6 +510,7 @@ async function getYesNo(question: string): Promise<boolean> {
 
 function parseContextAttributeToCustomFieldMapping(
   contextAttributeToCustomFieldMappingArg: string[],
+  statsigLogger: StatsigLogger,
 ): Record<string, Record<string, string>> {
   const mapping: Record<string, Record<string, string>> = {};
   contextAttributeToCustomFieldMappingArg.forEach((e) => {
@@ -492,6 +518,7 @@ function parseContextAttributeToCustomFieldMapping(
       console.error(
         `Invalid context attribute to custom field mapping: ${e}. Use --context-attribute-to-custom-field context-kind/attribute=custom-field-name to specify a mapping.`,
       );
+      statsigLogger.shutdown();
       process.exit(1);
     }
     const [contextKind, rest] = e.split('/');
