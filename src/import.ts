@@ -247,7 +247,7 @@ export async function importConfigs(
 
     if (importResult.imported && config.overrides.length > 0) {
       const overrideImportResult = await addStatsigGateOverrides(
-        gate.name,
+        gate.id,
         config.overrides,
         args,
       );
