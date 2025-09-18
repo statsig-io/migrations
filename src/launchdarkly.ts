@@ -604,6 +604,7 @@ function transformFlagToGate(
           );
 
         rules.push(...multipleRules);
+        notices.push(...(ruleResult.notices ?? []));
         notices.push(...multipleSegmentNotices);
       } else {
         errors.push(...ruleResult.errors);
@@ -788,6 +789,7 @@ function transformFlagToDynamicConfig(
           );
 
         rules.push(...multipleRules);
+        notices.push(...(ruleResult.notices ?? []));
         notices.push(...multipleSegmentNotices);
       } else {
         errors.push(...ruleResult.errors);
@@ -842,6 +844,7 @@ function translateLaunchDarklyRule(
   args: Args,
 ): TransformResult<StatsigRule> {
   let passPercentage;
+  const notices: TransformNotice[] = [];
   const errors: TransformError[] = [];
 
   if (percentageOverride != null) {
@@ -862,6 +865,7 @@ function translateLaunchDarklyRule(
     const conditionResult = translateRuleClause(flagKey, clause, args);
     if (conditionResult.transformed) {
       conditions.push(conditionResult.result);
+      notices.push(...(conditionResult.notices ?? []));
     } else {
       errors.push(...conditionResult.errors);
     }
@@ -893,6 +897,7 @@ function translateLaunchDarklyRule(
         args.environmentNameMapping[environmentName] ?? environmentName,
       ],
     },
+    notices,
   };
 }
 
@@ -905,6 +910,7 @@ function translateLaunchDarklyDynamicConfigRule(
   args: Args,
 ): TransformResult<StatsigDynamicConfigRule> {
   const rule = nullthrows(flagEnvironment.rules?.[ruleIndex]);
+  const notices: TransformNotice[] = [];
   const errors: TransformError[] = [];
   let variantPercentages:
     | {
@@ -947,6 +953,7 @@ function translateLaunchDarklyDynamicConfigRule(
     const conditionResult = translateRuleClause(flagKey, clause, args);
     if (conditionResult.transformed) {
       conditions.push(conditionResult.result);
+      notices.push(...(conditionResult.notices ?? []));
     } else {
       errors.push(...conditionResult.errors);
     }
@@ -985,6 +992,7 @@ function translateLaunchDarklyDynamicConfigRule(
         returnValue: variations[variant.variation].value,
       })),
     },
+    notices,
   };
 }
 
@@ -1308,6 +1316,8 @@ function transformRuleClauseType(
   clause: LaunchDarklyFlagClause,
   { contextKindToUnitIDMapping, contextCustomAttributeMapping }: Args,
 ): TransformResult<Pick<StatsigCondition, 'type' | 'field' | 'customID'>> {
+  const notices: TransformNotice[] = [];
+
   const contextKind = clause.contextKind ?? 'user';
   if (clause.attribute === 'key') {
     if (contextKind === 'user') {
@@ -1355,25 +1365,24 @@ function transformRuleClauseType(
     };
   }
 
-  const customField =
+  const customFieldMapping =
     contextCustomAttributeMapping[contextKind]?.[clause.attribute];
-  if (!customField) {
-    return {
-      transformed: false,
-      errors: [
-        {
-          type: 'custom_attribute_not_mapped',
-          contextKind,
-          attribute: clause.attribute,
-          flagKey,
-        },
-      ],
-    };
+  const customField =
+    customFieldMapping ?? `${contextKind}.${clause.attribute}`;
+
+  if (!customFieldMapping) {
+    notices.push({
+      type: 'custom_attribute_not_mapped',
+      contextKind,
+      attribute: clause.attribute,
+      flagKey,
+    });
   }
 
   return {
     transformed: true,
     result: { type: 'custom_field', field: customField },
+    notices,
   };
 }
 
@@ -1513,6 +1522,7 @@ function translateRuleClause(
   return {
     transformed: true,
     result: ruleCondition,
+    notices: [...(clauseTypeResult.notices ?? [])],
   };
 }
 

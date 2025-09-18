@@ -27,6 +27,11 @@ export type TransformNotice = {
   | { type: 'return_value_wrapped' }
   | { type: 'inconsistent_context_kind' }
   | { type: 'multiple_segments_condition'; ruleName: string }
+  | {
+      type: 'custom_attribute_not_mapped';
+      contextKind: string;
+      attribute: string;
+    }
 );
 
 export type TransformError = {

@@ -51,6 +51,8 @@ export function transformNoticeToString(notice: TransformNotice): string {
       return `Statsig does not support multiple randomization context kinds.`;
     case 'multiple_segments_condition':
       return `Statsig does not support multiple segments in a single condition. Please check flag "${notice.flagKey}" for conditions with multiple segments. We've only migrated the first segment in every condition.`;
+    case 'custom_attribute_not_mapped':
+      return `No explicit mapping for custom attribute "${notice.attribute}" of context kind "${notice.contextKind}", so we mapped it to "${notice.contextKind}.${notice.attribute}". Use --context-attribute-to-custom-field ${notice.contextKind}/${notice.attribute}=<custom-field-name> to specify a mapping.`;
     default:
       const exhaustive: never = notice;
       return exhaustive;
