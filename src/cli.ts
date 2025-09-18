@@ -16,11 +16,13 @@ import {
   transformNoticeToString,
 } from './util';
 import {
+  getStatsigCompany,
   listStatsigEnvironments,
   listStatsigUnitIDs,
   statsigApiThrottle,
 } from './statsig';
 
+import StatsigLogger from './utils/statsig-sdk';
 import { createObjectCsvWriter } from 'csv-writer';
 import minimist from 'minimist';
 import pThrottle from 'p-throttle';
@@ -36,19 +38,25 @@ enum MigrateFrom {
 
 export default async function cli(): Promise<void> {
   const argv = minimist(process.argv.slice(2));
+  const statsigLogger = new StatsigLogger();
 
   const from = argv.from;
 
+  statsigLogger.addBaseMetaData({ from });
+
   if (!from) {
-    console.error('Missing required arguments: --from');
+    const errorMessage = 'Missing required arguments: --from';
+    console.error(errorMessage);
+    statsigLogger.logAndShutdown('migration_script_error', errorMessage);
     process.exit(1);
   }
 
   const statsigApiKey = process.env.STATSIG_API_KEY;
   if (!statsigApiKey) {
-    console.error(
-      'Missing required environment variable: STATSIG_API_KEY. To generate a Statsig Console API key, see https://docs.statsig.com/sdk-keys/api-keys/',
-    );
+    const errorMessage =
+      'Missing required environment variable: STATSIG_API_KEY. To generate a Statsig Console API key, see https://docs.statsig.com/sdk-keys/api-keys/';
+    console.error(errorMessage);
+    statsigLogger.logAndShutdown('migration_script_error', errorMessage);
     process.exit(1);
   }
   const statsigThrottle = pThrottle(statsigApiThrottle);
@@ -57,17 +65,38 @@ export default async function cli(): Promise<void> {
     throttle: statsigThrottle,
   };
 
+  const statsigCompany = await getStatsigCompany(statsigArgs);
+  if (!statsigCompany) {
+    statsigLogger.logAndShutdown(
+      'migration_script_error',
+      'statsig_company_not_found',
+    );
+    process.exit(1);
+  }
+
+  statsigLogger.logEvent(
+    'init_migration_script',
+    statsigCompany?.companyName,
+    statsigCompany,
+  );
+
+  statsigLogger.addBaseMetaData(statsigCompany);
+
   if (from === MigrateFrom.LaunchDarkly) {
     const launchdarklyApiKey = process.env.LAUNCHDARKLY_API_KEY;
     if (!launchdarklyApiKey) {
-      console.error(
-        'Missing required environment variable: LAUNCHDARKLY_API_KEY. To generate a LaunchDarkly API key, see https://launchdarkly.com/docs/home/account/api-create',
-      );
+      const errorMessage =
+        'Missing required environment variable: LAUNCHDARKLY_API_KEY. To generate a LaunchDarkly API key, see https://launchdarkly.com/docs/home/account/api-create';
+      console.error(errorMessage);
+      statsigLogger.logAndShutdown('migration_script_error', errorMessage);
       process.exit(1);
     }
     const launchdarklyProjectID = argv['launchdarkly-project-id'];
     if (!launchdarklyProjectID) {
-      console.error('Missing required argument: --launchdarkly-project-id');
+      const errorMessage =
+        'Missing required argument: --launchdarkly-project-id';
+      console.error(errorMessage);
+      statsigLogger.logAndShutdown('migration_script_error', errorMessage);
       process.exit(1);
     }
 
@@ -89,6 +118,7 @@ export default async function cli(): Promise<void> {
             !Array.isArray(contextAttributeToCustomFieldMappingArg)
               ? [contextAttributeToCustomFieldMappingArg]
               : contextAttributeToCustomFieldMappingArg,
+            statsigLogger,
           )
         : {};
 
@@ -129,21 +159,31 @@ export default async function cli(): Promise<void> {
       launchdarklyArgs,
     );
     if (!launchDarklySetupResult.ok) {
+      const loggingMessage = [];
       if (launchDarklySetupResult.unmappedEnvironments.length > 0) {
-        console.log(
+        loggingMessage.push(
           `Unmapped environments: ${launchDarklySetupResult.unmappedEnvironments.join(', ')}.\nUse --environment-key-mapping ld-env-key=statsig-env-key to specify a mapping (can specify multiple).`,
         );
       }
       if (launchDarklySetupResult.invalidUnitIDs.length > 0) {
-        console.log(
+        loggingMessage.push(
           `Invalid unit IDs specified for context kinds: ${launchDarklySetupResult.invalidUnitIDs.join(', ')}.`,
         );
       }
       if (launchDarklySetupResult.contextKindsWithoutUnitIDs.length > 0) {
-        console.log(
+        loggingMessage.push(
           `Missing unit IDs for context kinds: ${launchDarklySetupResult.contextKindsWithoutUnitIDs.join(', ')}.\nUse --context-kind-to-unit-id context-kind=unit_id to specify a mapping (can specify multiple).`,
         );
       }
+
+      loggingMessage.forEach((message) => {
+        console.log(message);
+      });
+
+      statsigLogger.logAndShutdown(
+        'migration_script_error',
+        loggingMessage.join('\n'),
+      );
       process.exit(1);
     } else {
       console.log(
@@ -272,6 +312,10 @@ export default async function cli(): Promise<void> {
       'Proceed to import the flags/segments that can be imported?',
     );
     if (!proceed) {
+      statsigLogger.logAndShutdown(
+        'migration_script_interrupt',
+        'User did not proceed to import the flags/segments that can be imported.',
+      );
       process.exit(0);
     }
 
@@ -295,6 +339,10 @@ export default async function cli(): Promise<void> {
         'Some LaunchDarkly flags you’re trying to import already exist in Statsig. Proceed to delete and re-import them?',
       );
       if (!proceed) {
+        statsigLogger.logAndShutdown(
+          'migration_script_interrupt',
+          'User did not proceed to delete and re-import the flags/segments that can be imported.',
+        );
         process.exit(0);
       }
       const deleteExistingImportedConfigsResult =
@@ -474,9 +522,9 @@ export default async function cli(): Promise<void> {
     );
     await actuallyMigratedCsvOutputWriter.commit();
   } else {
-    console.error(
-      `Invalid --from value. Available values: ${Object.values(MigrateFrom).join(', ')}`,
-    );
+    const errorMessage = `Invalid --from value. Available values: ${Object.values(MigrateFrom).join(', ')}`;
+    console.error(errorMessage);
+    statsigLogger.logAndShutdown('migration_script_error', errorMessage);
     process.exit(1);
   }
 }
@@ -497,13 +545,14 @@ async function getYesNo(question: string): Promise<boolean> {
 
 function parseContextAttributeToCustomFieldMapping(
   contextAttributeToCustomFieldMappingArg: string[],
+  statsigLogger: StatsigLogger,
 ): Record<string, Record<string, string>> {
   const mapping: Record<string, Record<string, string>> = {};
   contextAttributeToCustomFieldMappingArg.forEach((e) => {
     if (typeof e !== 'string' || !e.includes('/') || !e.includes('=')) {
-      console.error(
-        `Invalid context attribute to custom field mapping: ${e}. Use --context-attribute-to-custom-field context-kind/attribute=custom-field-name to specify a mapping.`,
-      );
+      const errorMessage = `Invalid context attribute to custom field mapping: ${e}. Use --context-attribute-to-custom-field context-kind/attribute=custom-field-name to specify a mapping.`;
+      console.error(errorMessage);
+      statsigLogger.logAndShutdown('migration_script_error', errorMessage);
       process.exit(1);
     }
     const [contextKind, rest] = e.split('/');
