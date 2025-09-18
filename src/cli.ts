@@ -392,6 +392,12 @@ export default async function cli(): Promise<void> {
       const ldFlag = ldFlagsByKey.get(config.id);
       const ldSegment = ldSegmentsByKey.get(config.id);
       const ldType = ldFlag ? 'flag' : 'segment';
+      const notices = (
+        configTransformResult.noticesByConfigName[config.id] ?? []
+      ).map((notice) => transformNoticeToString(notice));
+      if (notice) {
+        notices.push(notice);
+      }
 
       actuallyMigratedCsvOutputWriter.add({
         ld_name: config.name,
@@ -411,7 +417,7 @@ export default async function cli(): Promise<void> {
         statsig_created_time: undefined, // TODO: Add createdTime field to the types and retrieve them here
         maintainer:
           ldType === 'segment' ? 'Unknown' : getLdFlagMaintainer(ldFlag),
-        reason: notice ?? '',
+        reason: notices.join(', '),
         actual_migration_status: true,
         can_be_imported: true,
       });
@@ -428,6 +434,12 @@ export default async function cli(): Promise<void> {
         const ldFlag = ldFlagsByKey.get(configId);
         const ldSegment = ldSegmentsByKey.get(configId);
         const ldType = ldFlag ? 'flag' : 'segment';
+        const notices = (
+          configTransformResult.noticesByConfigName[configId] ?? []
+        ).map((notice) => transformNoticeToString(notice));
+        if (error) {
+          notices.push(error);
+        }
 
         console.log(`- ${configId}:`);
         console.log(`  - ${error}`);
@@ -450,7 +462,7 @@ export default async function cli(): Promise<void> {
           statsig_created_time: undefined,
           maintainer:
             ldType === 'segment' ? 'Unknown' : getLdFlagMaintainer(ldFlag),
-          reason: error ?? '',
+          reason: notices.join(', '),
           actual_migration_status: false,
           can_be_imported: true,
         });
