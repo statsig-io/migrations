@@ -105,7 +105,11 @@ export async function getLaunchDarklyConfigs(args: Args): Promise<{
     }
   });
 
-  const environments = await listLaunchDarklyEnvironments(args);
+  const environments = await listLaunchDarklyEnvironments({
+    apiKey: args.apiKey,
+    projectID: args.projectID,
+    throttle: args.throttle,
+  });
   const envKeys = environments
     .map((env) => env.name)
     .filter(
@@ -1530,7 +1534,9 @@ export async function listLaunchDarklyEnvironments({
   apiKey,
   projectID,
   throttle,
-}: Args): Promise<StatsigEnvironment[]> {
+}: Pick<Args, 'apiKey' | 'projectID' | 'throttle'>): Promise<
+  StatsigEnvironment[]
+> {
   const response = await throttle(() =>
     fetch(`${BASE_URL}/projects/${projectID}/environments`, {
       headers: {
@@ -1562,7 +1568,7 @@ export async function listLaunchDarklyContextKinds({
   apiKey,
   projectID,
   throttle,
-}: Args): Promise<string[]> {
+}: Pick<Args, 'apiKey' | 'projectID' | 'throttle'>): Promise<string[]> {
   const response = await throttle(() =>
     fetch(
       `${BASE_URL}/projects/${projectID}/context-kinds`,
@@ -1593,7 +1599,11 @@ export async function ensureLaunchDarklySetup(
       contextKindsWithoutUnitIDs: string[];
     }
 > {
-  const launchdarklyEnvironments = await listLaunchDarklyEnvironments(args);
+  const launchdarklyEnvironments = await listLaunchDarklyEnvironments({
+    apiKey: args.apiKey,
+    projectID: args.projectID,
+    throttle: args.throttle,
+  });
   const unmappedEnvironments = launchdarklyEnvironments
     .filter(
       (environment) =>
@@ -1607,7 +1617,11 @@ export async function ensureLaunchDarklySetup(
         ) && !args.environmentNameMapping[environment.name],
     );
 
-  const launchdarklyContextKinds = await listLaunchDarklyContextKinds(args);
+  const launchdarklyContextKinds = await listLaunchDarklyContextKinds({
+    apiKey: args.apiKey,
+    projectID: args.projectID,
+    throttle: args.throttle,
+  });
 
   const contextKindsAndUnitIDs = launchdarklyContextKinds.map((contextKind) => {
     let unitID;
