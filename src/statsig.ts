@@ -21,6 +21,14 @@ export type Args = {
   throttle: <T>(fn: () => Promise<T>) => () => Promise<T>;
 };
 
+export type StatsigCompany = {
+  companyID: string;
+  companyName: string;
+  isWarehouseNative: boolean;
+  orgID: string;
+  orgName: string;
+};
+
 function getRequestOptions(args: Args): RequestInit {
   return {
     headers: {
@@ -338,4 +346,22 @@ export async function createStatsigTag(
       `Failed to create Statsig tag: ${response.statusText} ${await response.text()}`,
     );
   }
+}
+
+export async function getStatsigCompany(
+  args: Args,
+): Promise<StatsigCompany | null> {
+  const response = await args.throttle(() =>
+    fetch(`${BASE_URL}/company`, {
+      ...getRequestOptions(args),
+    }),
+  )();
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to get Statsig company: ${response.statusText} ${await response.text()}`,
+    );
+  }
+  const data = await response.json();
+  return data.data;
 }
