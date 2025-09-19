@@ -521,6 +521,18 @@ export default async function cli(): Promise<void> {
       canBeImportedCsvOutputWriter,
     );
     await actuallyMigratedCsvOutputWriter.commit();
+
+    const allNoticesAndErrors = actuallyMigratedCsvOutputWriter.records
+      .map((record) => record.reason)
+      .filter((reason) => reason !== '');
+
+    statsigLogger.logAndShutdown('migration_script_success', undefined, {
+      total_config_imported: totalConfigImported,
+      total_config_not_imported:
+        actuallyMigratedCsvOutputWriter.records.length - totalConfigImported,
+      all_notices_and_errors: allNoticesAndErrors.join(','),
+      all_info: JSON.stringify(actuallyMigratedCsvOutputWriter.records),
+    });
   } else {
     const errorMessage = `Invalid --from value. Available values: ${Object.values(MigrateFrom).join(', ')}`;
     console.error(errorMessage);
