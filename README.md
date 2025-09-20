@@ -38,18 +38,14 @@ STATSIG_API_KEY=console-xxx LAUNCHDARKLY_API_KEY=api-yyyy npx @statsig/migration
 ```
 
 #### Getting your LaunchDarkly API Key
+To generate a LaunchDarkly API key, go to **Account settings** → **Authorization** → **Access tokens** ([docs](https://launchdarkly.com/docs/home/account/api-create))
 
-1. In your LaunchDarkly dashboard, go to **Account settings** → **Authorization** → **Access tokens**
-2. Click **Create token** and create an Access Token with at least the **Reader** role
-
-![LaunchDarkly Create Key](src/images/ld-create-key.png)
+<img src="src/images/ld-create-key.png" alt="LaunchDarkly Create Key" width="750">
 
 #### Getting your Statsig Console API Key
+To generate a Statsig Console API key, go to **Settings** → **Keys & Environments** → **Console API** ([docs](https://docs.statsig.com/sdk-keys/api-keys/))
 
-1. In your Statsig console, go to **Settings** → **Keys & Environments** → **Console API**
-2. Click **Create Key** to generate a new Console API key
-
-![Statsig Create Key](src/images/statsig-create-key.png)
+<img src="src/images/statsig-create-key.png" alt="Statsig Create Key" width="750">
 
 ### Environment mapping
 
@@ -69,14 +65,13 @@ npx @statsig/migrations --only-environment production
 
 You'll also need the environment keys for the specific LaunchDarkly project you want to migrate from. You can find this in your LaunchDarkly project settings:
 
-![LaunchDarkly Environment Key](src/images/ld-env-key.png)
+<img src="src/images/ld-env-key.png" alt="LaunchDarkly Environment Key" width="750">
 
 #### Getting your Statsig Environment Keys
 
 You'll also need the Statsig environment keys. You can find this in the same **Keys & Environments** section (in Statsig, environment name and key is same):
 
-![Statsig Environment Key](src/images/statsig-env-key.png)
-
+<img src="src/images/statsig-env-key.png" alt="Statsig Environment Key" width="750">
 
 ### Context kind mapping
 
@@ -86,7 +81,7 @@ LaunchDarkly context kinds do not exist in Statsig the same way. Context kind ke
 npx @statsig/migrations --context-kind-to-unit-id device=device_id
 ```
 
-(Optional) If you know all the context kind attributes that you have in launchdarkly, you can create them as Custom Fields in Statsig. See [docs](https://docs.statsig.com/feature-flags/conditions/#custom)). If you don't want to create these upfront, we will create them for you when we run the script:
+(Optional) Context kind attributes can be mapped to Statsig's custom fields (see [docs](https://docs.statsig.com/feature-flags/conditions/#custom)). Use `--context-attribute-to-custom-field` to map any custom context kind attributes. The Statsig `custom fields` do not need to exist in Statsig before you run the script. If you don't provide a mapping for a context kind attribute, we will create them using heuristic. For example, `location` attribute of context kind organization will be mapped to `organization.location`.
 
 ```
 npx @statsig/migrations \
