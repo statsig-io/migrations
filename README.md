@@ -1,15 +1,16 @@
 # Statsig Migration
 
-This package is designed to help automate some of the migration of feature flags from (currently just) LaunchDarkly to Statsig. It fetches feature flags from LaunchDarkly, translates them into Statsig's format, and creates corresponding feature gates in Statsig.
+This package is designed to help automate migration of feature flags from LaunchDarkly to Statsig. It fetches feature flags from LaunchDarkly, translates them into Statsig's format, and creates corresponding feature gates in Statsig.
 
 ## Considerations
 
 This script should work out of the box. It's recommended you getting started with a test environment of 5-10 flags. However, before running the script on a large scale, consider the following:
 
-- **IMPORTANT**: If you don't want/need to customize this import script, you may consider using [Statsig's built in LaunchDarkly migration tool](https://docs.statsig.com/guides/migrate-from-launchdarkly).
+- **IMPORTANT**: If you don't want/need to customize this import script, you may consider using our [in-console migration tool](https://docs.statsig.com/guides/migrate-from-launchdarkly).
 - The script uses a tag (`Imported from LaunchDarkly`) to identify migrated flags in Statsig. Ensure this tag is unique and recognizable.
 - The script includes a function to delete all Statsig feature gates with a specific tag. Use this with caution to clean up after a test or failed migration.
 - The script requires API keys for both LaunchDarkly and Statsig, which should be kept secure.
+
 - **Environments**: In Statsig, the hierarchy is designed with a single project that contains multiple environments, such as Development, Staging, and Production. Conversely, LaunchDarkly adopts an Environment > Project hierarchy, where each environment can be considered a separate project with its own set of feature flags. You can configure the environment mapping as part of this script's execution. Here's an example of a flag which is only on in development, which was imported using the current migration script: ![Untitled-1](https://github.com/statsig-io/launchDarkly_migration_script_template/assets/5475308/0368679e-d3b1-4370-94c3-2637c71b961f)
 
 ## Running
@@ -36,9 +37,15 @@ Before running the script, you need API keys for LaunchDarkly and Statsig. You c
 STATSIG_API_KEY=console-xxx LAUNCHDARKLY_API_KEY=api-yyyy npx @statsig/migrations --from launchdarkly --launchdarkly-project-id default <more-arguments>
 ```
 
-To generate a LaunchDarkly API key, see [LaunchDarkly docs](https://launchdarkly.com/docs/home/account/api-create).
+#### Getting your LaunchDarkly API Key
+To generate a LaunchDarkly API key, go to **Account settings** → **Authorization** → **Access tokens** ([docs](https://launchdarkly.com/docs/home/account/api-create))
 
-To generate a Statsig Console API key, see [Statsig docs](https://docs.statsig.com/sdk-keys/api-keys/).
+<img src="src/images/ld-create-key.png" alt="LaunchDarkly Create Key" width="750">
+
+#### Getting your Statsig Console API Key
+To generate a Statsig Console API key, go to **Settings** → **Keys & Environments** → **Console API** ([docs](https://docs.statsig.com/sdk-keys/api-keys/))
+
+<img src="src/images/statsig-create-key.png" alt="Statsig Create Key" width="750">
 
 ### Environment mapping
 
@@ -54,15 +61,27 @@ If you want to only import for a specific environment, use `--only-environment`.
 npx @statsig/migrations --only-environment production
 ```
 
+#### Getting your LaunchDarkly Environment Keys
+
+You'll also need the environment keys for the specific LaunchDarkly project you want to migrate from. You can find this in your LaunchDarkly project settings:
+
+<img src="src/images/ld-env-key.png" alt="LaunchDarkly Environment Key" width="750">
+
+#### Getting your Statsig Environment Keys
+
+You'll also need the Statsig environment keys. You can find this in the same **Keys & Environments** section (in Statsig, environment name and key is same):
+
+<img src="src/images/statsig-env-key.png" alt="Statsig Environment Key" width="750">
+
 ### Context kind mapping
 
-LaunchDarkly context kinds do not exist in Statsig the same way. Context kind keys can be mapped to Statsig's custom unit ids (see [docs](https://docs.statsig.com/guides/experiment-on-custom-id-types/)). The default user context kind is automatically mapped to the built-in `user_id` unit id in Statsig. Use `--context-kind-to-unit-id` to map any custom context kinds. The Statsig unit id needs to exist in Statsig already.
+LaunchDarkly context kinds do not exist in Statsig the same way. Context kind keys can be mapped to Statsig's unit ids (see [docs](https://docs.statsig.com/guides/experiment-on-custom-id-types/)). The default user context kind is automatically mapped to the built-in `user_id` in Statsig. Use `--context-kind-to-unit-id` to map any custom context kinds. The Statsig unit id needs to exist in Statsig already.
 
 ```
 npx @statsig/migrations --context-kind-to-unit-id device=device_id
 ```
 
-Basic user attributes are automatically mapped. Since Statsig does not have context kinds, custom attributes are global, and need to be specified as custom fields (see [docs](https://docs.statsig.com/feature-flags/conditions/#custom)). This mapping can be specified:
+(Optional) Context kind attributes can be mapped to Statsig's custom fields (see [docs](https://docs.statsig.com/feature-flags/conditions/#custom)). Use `--context-attribute-to-custom-field` to map any custom context kind attributes. The Statsig `custom fields` do not need to exist in Statsig before you run the script. If you don't provide a mapping for a context kind attribute, we will create them using heuristic. For example, `location` attribute of context kind organization will be mapped to `organization.location`.
 
 ```
 npx @statsig/migrations \
