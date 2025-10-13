@@ -336,7 +336,7 @@ export default async function cli(): Promise<void> {
       await needToDeleteExistingImportedConfigs(validConfigNames, statsigArgs)
     ) {
       const proceed = await getYesNo(
-        'Some LaunchDarkly flags you’re trying to import already exist in Statsig. Proceed to delete and re-import them?',
+        `We found some flags in Statsig with the same keys as LaunchDarkly flags. LaunchDarkly flags will overwrite Statsig flags tagged with ${LAUNCHDARKLY_IMPORT_TAG}. Flags without this tag will be skipped. Proceed?`,
       );
       if (!proceed) {
         statsigLogger.logAndShutdown(
@@ -361,13 +361,6 @@ export default async function cli(): Promise<void> {
             .concat(
               deleteExistingImportedConfigsResult.existingSegmentsWithoutImportTag,
             );
-        console.log('');
-        console.log(
-          `We avoid overriding Statsig configs that are not tagged with "${LAUNCHDARKLY_IMPORT_TAG}", so we cannot import these LaunchDarkly flags: ${untaggedConfigIds.join(', ')}.`,
-        );
-        console.log(
-          `Please tag the corresponding gates, dynamic configs, or segments in Statsig with "${LAUNCHDARKLY_IMPORT_TAG}" or delete them manually, after which you can re-run the script to migrate those flags.`,
-        );
 
         untaggedConfigIds.forEach((configID) => {
           const ldFlag = ldFlagsByKey.get(configID);
