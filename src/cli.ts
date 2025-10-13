@@ -29,7 +29,7 @@ import pThrottle from 'p-throttle';
 import path from 'path';
 import readline from 'readline';
 
-const LAUNCHDARKLY_IMPORT_TAG = 'Imported from LaunchDarkly';
+const LAUNCHDARKLY_IMPORT_TAG = 'IMPORTED_FROM_LAUNCHDARKLY';
 const LAUNCHDARKLY_IMPORT_TAG_DESCRIPTION = 'Imported from LaunchDarkly';
 
 enum MigrateFrom {
