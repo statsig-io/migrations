@@ -52,6 +52,10 @@ export async function getLaunchDarklyConfigs(args: Args): Promise<{
   flags: LaunchDarklyFlag[];
   segments: LaunchDarklySegment[];
 }> {
+  if (!('user' in args.contextKindToUnitIDMapping)) {
+    args.contextKindToUnitIDMapping['user'] = 'userID';
+  }
+
   const flagKeysResult = await listFeatureFlagKeys(args);
   if (!flagKeysResult.transformed) {
     return {
@@ -276,7 +280,8 @@ function transformSegment(
             {
               operator: 'any',
               targetValue: context.values,
-              ...(!context.contextKind || context.contextKind === 'user'
+              ...(!context.contextKind ||
+              args.contextKindToUnitIDMapping[context.contextKind] === 'userID'
                 ? {
                     type: 'user_id',
                   }
@@ -549,10 +554,7 @@ function transformFlagToGate(
           }
 
           const contextKind = overrideTarget.contextKind ?? 'user';
-          const unitID =
-            contextKind === 'user'
-              ? 'userID'
-              : args.contextKindToUnitIDMapping?.[contextKind];
+          const unitID = args.contextKindToUnitIDMapping?.[contextKind];
           if (!unitID) {
             errors.push({
               type: 'unit_id_not_mapped',
@@ -733,10 +735,7 @@ function transformFlagToDynamicConfig(
           }
 
           const contextKind = overrideTarget.contextKind ?? 'user';
-          const unitID =
-            contextKind === 'user'
-              ? 'userID'
-              : args.contextKindToUnitIDMapping?.[contextKind];
+          const unitID = args.contextKindToUnitIDMapping?.[contextKind];
           if (!unitID) {
             errors.push({
               type: 'unit_id_not_mapped',
@@ -749,7 +748,7 @@ function transformFlagToDynamicConfig(
           const rule: StatsigDynamicConfigRule = {
             name: `(${env}) ${flag.key} targets ${idx + 1}`,
             conditions: [
-              contextKind === 'user'
+              args.contextKindToUnitIDMapping[contextKind] === 'userID'
                 ? {
                     type: 'user_id',
                     operator: 'any',
@@ -1324,7 +1323,7 @@ function transformRuleClauseType(
 
   const contextKind = clause.contextKind ?? 'user';
   if (clause.attribute === 'key') {
-    if (contextKind === 'user') {
+    if (contextKindToUnitIDMapping[contextKind] === 'userID') {
       return {
         transformed: true,
         result: { type: 'user_id' },
@@ -1599,6 +1598,10 @@ export async function ensureLaunchDarklySetup(
       contextKindsWithoutUnitIDs: string[];
     }
 > {
+  if (!('user' in args.contextKindToUnitIDMapping)) {
+    args.contextKindToUnitIDMapping['user'] = 'userID';
+  }
+
   const launchdarklyEnvironments = await listLaunchDarklyEnvironments({
     apiKey: args.apiKey,
     projectID: args.projectID,
@@ -1624,12 +1627,7 @@ export async function ensureLaunchDarklySetup(
   });
 
   const contextKindsAndUnitIDs = launchdarklyContextKinds.map((contextKind) => {
-    let unitID;
-    if (contextKind === 'user') {
-      unitID = 'user_id';
-    } else {
-      unitID = args.contextKindToUnitIDMapping[contextKind];
-    }
+    const unitID = args.contextKindToUnitIDMapping[contextKind];
     return [contextKind, unitID] as const;
   });
 
@@ -1637,7 +1635,7 @@ export async function ensureLaunchDarklySetup(
     .map(([_, unitID]) => unitID)
     .filter(
       (unitID) =>
-        unitID && unitID !== 'user_id' && !statsigUnitIDs.includes(unitID),
+        unitID && unitID !== 'userID' && !statsigUnitIDs.includes(unitID),
     );
 
   const contextKindsWithoutUnitIDs = contextKindsAndUnitIDs.filter(
@@ -1705,10 +1703,7 @@ function transformContextKindToUnitID(
     });
   }
 
-  const unitID =
-    contextKind === 'user'
-      ? 'userID'
-      : args.contextKindToUnitIDMapping?.[contextKind];
+  const unitID = args.contextKindToUnitIDMapping?.[contextKind];
   if (!unitID) {
     errors.push({
       type: 'unit_id_not_mapped',
